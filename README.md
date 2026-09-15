@@ -1,6 +1,11 @@
 # Token Meter
 
-A live, Task-Manager-style dashboard of your Claude Code token usage. It reads the
+A live, Task-Manager-style dashboard of your Claude Code token usage. 
+
+<img width="931" height="1305" alt="Screenshot_15-9-2026_23436_127 0 0 1" src="https://github.com/user-attachments/assets/a26d4d1f-3bf4-44ef-8a4a-0afd840df55e" />
+
+
+It reads the
 transcripts Claude Code already writes to `~/.claude/projects/**/*.jsonl`, so it costs
 no tokens and needs nothing beyond Python 3.8+ (standard library only). Works on Windows, Linux
 and macOS.
