@@ -418,9 +418,12 @@ class TimeChart {
     // markers for /model, /compact, /clear and session start
     if (this.opts.markers) drawEventMarkers(ctx, d, t => X((t - d.start) / d.bucket), pt, h, pl, w);
 
-    // marks
+    // marks — a stacked layer with zero contribution everywhere in view sits exactly
+    // on top of the layer below it, so skip drawing it (its own-color stroke would
+    // otherwise look like a real series riding the same boundary).
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const L of layers) {
+      if (L.lo && !L.hi.some((v, i) => v > L.lo[i] + 1e-6)) continue;
       const color = cssVar(this._color(L.k));
       if (L.lo) {
         ctx.beginPath();
