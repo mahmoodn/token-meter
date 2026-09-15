@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Meter</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb;
+  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --m1: #008300; --m2: #4a3aa7; --m3: #e34948;
+  --good: #0ca30c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --m1: #008300; --m2: #9085e9; --m3: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19;
+  --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --m1: #008300; --m2: #9085e9; --m3: #e66767;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 32px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; }
+.who { color: var(--ink2); }
+.status { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.status.on .dot { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+.status.gen .dot { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .status.gen .dot { animation: none; } }
+.spacer { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button, .ghost {
+  font: inherit; font-size: 13px; color: var(--ink2); background: transparent; border: 0;
+  padding: 6px 10px; cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); font-weight: 600; }
+.ghost { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; min-width: 0; }
+.top { margin-bottom: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.tile .label { color: var(--ink2); font-size: 13px; }
+.tile .value { font-size: 30px; font-weight: 600; margin-top: 4px; }
+.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.card h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.card-head .now { margin-left: auto; font-size: 22px; font-weight: 600; }
+.card-head .now small { font-size: 12px; font-weight: 400; color: var(--ink2); margin-left: 4px; }
+.hint { color: var(--muted); font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
+.legend button {
+  font: inherit; font-size: 12px; color: var(--ink2); background: transparent;
+  border: 1px solid transparent; border-radius: 6px; padding: 2px 8px 2px 6px;
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+}
+.legend button:hover { border-color: var(--border); }
+.legend button[aria-pressed="false"] { color: var(--muted); text-decoration: line-through; }
+.legend button[aria-pressed="false"] .sw { opacity: .3; }
+.sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.charts { display: grid; gap: 16px; }
+canvas.chart { display: block; width: 100%; height: 200px; touch-action: none; }
+[hidden] { display: none !important; }
+.multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px 24px; margin-top: 4px; }
+.panel .ph { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.panel .ph b { margin-left: auto; color: var(--ink); font-size: 14px; }
+canvas.chart.mini { height: 120px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; min-width: 170px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+}
+.tip .t { color: var(--ink2); margin-bottom: 4px; }
+.tip .r { display: flex; align-items: center; gap: 6px; }
+.tip .r b { margin-left: auto; padding-left: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tip .tot { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+details { margin-top: 16px; }
+details summary { cursor: pointer; color: var(--ink2); }
+.table-wrap { overflow-x: auto; margin-top: 8px; max-height: 360px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.err { color: var(--s2); font-size: 13px; }
+@media (max-width: 760px) {
+  .tile .value { font-size: 24px; }
+  canvas.chart { height: 170px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><a href="https://github.com/mahmoodn/token-meter" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">Token Meter</a></h1>
+    <span class="who" id="who"></span>
+    <span class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+    <span class="spacer"></span>
+    <div class="seg" id="ranges" role="group" aria-label="Time range"></div>
+    <button class="ghost" id="theme" title="Theme">Theme: system</button>
+  </header>
+
+  <div class="top">
+    <div class="tiles">
+      <div class="card tile"><div class="label">Output today</div><div class="value" id="tToday">–</div><div class="sub" id="tTodaySub"></div></div>
+      <div class="card tile"><div class="label">Input today</div><div class="value" id="tInToday">–</div><div class="sub" id="tInTodaySub"></div></div>
+      <div class="card tile"><div class="label">Output, last 5 hours</div><div class="value" id="t5h">–</div><div class="sub" id="t5hSub"></div></div>
+      <div class="card tile"><div class="label">Peak output speed (7 days)</div><div class="value" id="tPeak">–</div><div class="sub" id="tPeakSub"></div></div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="card" id="cardOut">
+      <div class="card-head"><h2>Output rate</h2><span class="hint">tokens/s, stacked</span><span class="now" id="nowOut">0<small>tok/s</small></span></div>
+      <div class="legend" data-keys="think,out"></div>
+      <canvas class="chart" id="chartOut"></canvas>
+    </div>
+    <div class="card" id="cardIn">
+      <div class="card-head"><h2>Input rate</h2><span class="hint">tokens/s, stacked; cache read is usually much larger</span><span class="now" id="nowIn">0<small>tok/s</small></span></div>
+      <div class="legend" data-keys="in,cw,cr"></div>
+      <canvas class="chart" id="chartIn"></canvas>
+    </div>
+    <div class="card" id="cardModel" hidden>
+      <div class="card-head"><h2>By model</h2><span class="hint">tokens/s, stacked by model</span></div>
+      <div class="legend" id="modelLegend"></div>
+      <div class="multiples" id="modelPanels"></div>
+    </div>
+    <div class="card" id="cardCtx">
+      <div class="card-head"><h2>Context size per request</h2><span class="hint">fresh input + cache write + cache read, at each API request</span></div>
+      <div class="legend" id="ctxLegend"></div>
+      <canvas class="chart" id="chartCtx"></canvas>
+    </div>
+    <div class="card" id="cardCum">
+      <div class="card-head"><h2>Cumulative tokens</h2><span class="hint" id="cumHint">running total; each panel has its own scale</span><span class="now" id="nowCum">0<small>tokens</small></span></div>
+      <div class="multiples" id="cumPanels"></div>
+    </div>
+  </div>
+
+  <details id="tableView">
+    <summary>Table view (non-empty buckets in this range)</summary>
+    <div class="table-wrap"><table id="table"></table></div>
+  </details>
+  <p class="err" id="err" hidden></p>
+</div>
+
+<script>
+const SERIES = [
+  { k: 'think', name: 'Thinking',          c: '--s1' },
+  { k: 'out',   name: 'Text & tool calls', c: '--s2' },
+  { k: 'in',    name: 'Fresh input',       c: '--s3' },
+  { k: 'cw',    name: 'Cache write',       c: '--s4' },
+  { k: 'cr',    name: 'Cache read',        c: '--s5' },
+];
+const BY_KEY = Object.fromEntries(SERIES.map(s => [s.k, s]));
+const RANGES = [['1m','1 min'],['5m','5 min'],['15m','15 min'],['1h','1 h'],['6h','6 h'],['24h','24 h'],['7d','7 d']];
+const MODEL_COLORS = ['--m1', '--m2', '--m3'];
+function modelLabel(id) {
+  if (!id || id === 'unknown') return 'unknown';
+  const m = id.match(/^claude-([a-z]+)-(\d[\d-]*)/i);
+  if (!m) return id;
+  const fam = m[1][0].toUpperCase() + m[1].slice(1);
+  const ver = m[2].replace(/-\d{8}$/, '').replace(/-/g, '.');
+  return `${fam} ${ver}`;
+}
+function eventLabel(e) {
+  if (e.kind === 'compact') return e.extra ? `⟲ compact ${fmt(e.extra.pre)}→${fmt(e.extra.post)}` : '⟲ compact';
+  if (e.kind === 'model') return e.extra && e.extra.to ? `⇄ ${e.extra.to}` : '⇄ /model';
+  if (e.kind === 'clear') return '␡ /clear';
+  if (e.kind === 'session') return '▸ session';
+  return e.kind;
+}
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('tm.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('tm.' + k, JSON.stringify(v)); } catch {} },
+};
+const state = {
+  range: store.get('range', '5m'),
+  hidden: new Set(store.get('hidden', ['cr'])),
+  data: null,
+  hover: null,
+};
+
+// ---------- formatting ----------
+function fmt(v) {
+  const a = Math.abs(v);
+  if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 1 : 2) + 'B';
+  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M';
+  if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 1 : 2) + 'k';
+  if (a >= 10 || v === 0) return Math.round(v).toString();
+  return v.toFixed(1);
+}
+const pad = n => String(n).padStart(2, '0');
+function timeLabel(t, bucket, full) {
+  const d = new Date(t * 1000);
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  if (bucket >= 1800 || (full && bucket >= 60)) return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + hm;
+  if (bucket < 60) return hm + ':' + pad(d.getSeconds());
+  return hm;
+}
+function ago(sec) {
+  if (sec < 60) return Math.round(sec) + 's ago';
+  if (sec < 3600) return Math.round(sec / 60) + 'm ago';
+  if (sec < 86400) return Math.round(sec / 3600) + 'h ago';
+  return Math.round(sec / 86400) + 'd ago';
+}
+function niceStep(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v * 0.9999) return m * p;
+  return 10 * p;
+}
+// Axis label with just enough decimals to tell neighbouring ticks apart.
+function fmtAxis(v, step, top) {
+  const [div, suf] = top >= 1e9 ? [1e9, 'B'] : top >= 1e6 ? [1e6, 'M'] : top >= 1e3 ? [1e3, 'k'] : [1, ''];
+  const s = step / div;
+  let dec = 0;
+  while (dec < 3 && Math.abs(Math.round(s * 10 ** dec) - s * 10 ** dec) > 1e-6) dec++;
+  return (v / div).toFixed(dec) + suf;
+}
+function niceCeil(v) {
+  if (!(v > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= v * 1.0001) return m * p;
+  return 10 * p;
+}
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------- controls ----------
+const rangesEl = document.getElementById('ranges');
+for (const [key, label] of RANGES) {
+  const b = document.createElement('button');
+  b.textContent = label; b.dataset.key = key;
+  b.setAttribute('aria-pressed', String(key === state.range));
+  b.onclick = () => {
+    state.range = key; store.set('range', key);
+    rangesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.key === key)));
+    refresh(true);
+  };
+  rangesEl.appendChild(b);
+}
+
+const THEMES = ['system', 'light', 'dark'];
+let theme = store.get('theme', 'system');
+const themeBtn = document.getElementById('theme');
+function applyTheme() {
+  if (theme === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  themeBtn.textContent = 'Theme: ' + theme;
+  drawAll();
+}
+themeBtn.onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; store.set('theme', theme); applyTheme(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+
+function buildLegends() {
+  document.querySelectorAll('.legend[data-keys]').forEach(el => {
+    el.innerHTML = '';
+    for (const k of el.dataset.keys.split(',')) {
+      const s = BY_KEY[k];
+      const b = document.createElement('button');
+      b.setAttribute('aria-pressed', String(!state.hidden.has(k)));
+      b.innerHTML = `<span class="sw" style="background:var(${s.c})"></span>${s.name}`;
+      b.onclick = () => {
+        state.hidden.has(k) ? state.hidden.delete(k) : state.hidden.add(k);
+        store.set('hidden', [...state.hidden]);
+        buildLegends(); drawAll(); renderTable();
+      };
+      el.appendChild(b);
+    }
+  });
+}
+
+// ---------- event markers (shared between chart types) ----------
+// Xt: time (epoch seconds) -> pixel x. Draws a dashed vertical line + label for each
+// session/model/compact/clear marker that falls inside [pl, pl+w].
+function drawEventMarkers(ctx, d, Xt, pt, h, pl, w) {
+  const muted = cssVar('--muted');
+  ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
+  for (const e of d.events || []) {
+    const x = Xt(e.t);
+    if (x < pl - 1 || x > pl + w + 1) continue;
+    const xr = Math.round(x) + 0.5;
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = muted; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xr, pt); ctx.lineTo(xr, pt + h); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    const label = eventLabel(e);
+    if (pl + w - x > ctx.measureText(label).width + 6) ctx.fillText(label, xr + 3, pt + 2);
+  }
+}
+
+// ---------- time chart (canvas) ----------
+class TimeChart {
+  constructor(id, opts) {
+    this.cv = document.getElementById(id);
+    this.card = this.cv.closest('.card');
+    this.opts = opts; // { keys, mode: 'stack' | 'line', values(d, k) -> number[], unit }
+    this.tip = document.createElement('div');
+    this.tip.className = 'tip'; this.tip.hidden = true;
+    this.card.appendChild(this.tip);
+    this.cv.addEventListener('pointermove', e => {
+      if (!state.data || !this.geom) return;
+      const { pl, w, n } = this.geom;
+      const x = e.offsetX;
+      const idx = Math.round((x - pl) / w * (n - 1));
+      state.hover = Math.max(0, Math.min(n - 1, idx));
+      state.hoverChart = this;
+      drawAll();
+    });
+    this.cv.addEventListener('pointerleave', () => { state.hover = null; state.hoverChart = null; drawAll(); });
+  }
+
+  _color(k) { return this.opts.colorFor ? this.opts.colorFor(k) : BY_KEY[k].c; }
+  _name(k) { return this.opts.nameFor ? this.opts.nameFor(k) : BY_KEY[k].name; }
+
+  draw(d) {
+    const cv = this.cv, dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const keys = this.opts.alwaysShow ? this.opts.keys : this.opts.keys.filter(k => !state.hidden.has(k));
+    const n = d.series.think.length;
+    const pl = 52, pr = 10, pt = 8, pb = 22;
+    const w = W - pl - pr, h = H - pt - pb;
+    this.geom = { pl, w, n };
+    const vals = Object.fromEntries(keys.map(k => [k, this.opts.values(d, k)]));
+
+    // stacked tops or plain lines
+    const layers = [];
+    let base = new Array(n).fill(0);
+    for (const k of keys) {
+      const top = this.opts.mode === 'stack' ? vals[k].map((v, i) => base[i] + v) : vals[k];
+      layers.push({ k, lo: this.opts.mode === 'stack' ? base : null, hi: top });
+      if (this.opts.mode === 'stack') base = top;
+    }
+    let max = 0, min = Infinity;
+    for (const L of layers) for (const v of L.hi) { if (v > max) max = v; if (v < min) min = v; }
+    let yMin = 0, yMax, step;
+    if (this.opts.fit) {
+      // Fit the axis to the values in view (running totals don't start at zero).
+      if (!isFinite(min)) min = 0;
+      step = niceStep(Math.max((max - min) / 4, max * 1e-4, 1));
+      yMin = Math.floor(min / step) * step;
+      yMax = yMin + 4 * step;
+      while (yMax < max) yMax += step;
+    } else {
+      yMax = niceCeil(max || this.opts.floor || 1);
+      step = yMax / 4;
+    }
+    const X = i => pl + (n === 1 ? 0 : i / (n - 1) * w);
+    const Y = v => pt + h - ((v - yMin) / (yMax - yMin)) * h;
+
+    const grid = cssVar('--grid'), axis = cssVar('--axis'), muted = cssVar('--muted'), surface = cssVar('--surface');
+    ctx.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = muted;
+
+    // grid + y labels
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    const lines = Math.round((yMax - yMin) / step);
+    const every = lines > 5 ? 2 : 1;
+    for (let j = 0; j <= lines; j++) {
+      const v = yMin + step * j, y = Math.round(Y(v)) + 0.5;
+      ctx.strokeStyle = j === 0 ? axis : grid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(pl + w, y); ctx.stroke();
+      if (j % every === 0) ctx.fillText(fmtAxis(v, step * every, yMax), pl - 8, y);
+    }
+    // x labels
+    ctx.textBaseline = 'top';
+    const ticks = W < 500 ? 3 : 5;
+    for (let j = 0; j < ticks; j++) {
+      const i = Math.round(j * (n - 1) / (ticks - 1));
+      ctx.textAlign = j === 0 ? 'left' : j === ticks - 1 ? 'right' : 'center';
+      ctx.fillText(timeLabel(d.start + i * d.bucket, d.bucket), X(i), pt + h + 6);
+    }
+
+    // requests still being generated: their tokens aren't in the transcript yet
+    for (const a of d.activity || []) {
+      if (a.kind !== 'gen') continue;
+      const i0 = (a.since - d.start) / d.bucket, i1 = (d.now - d.start) / d.bucket;
+      if (i1 < 0) continue;
+      const x0 = X(Math.max(0, Math.min(n - 1, i0))), x1 = X(Math.max(0, Math.min(n - 1, i1)));
+      if (x1 - x0 < 1) continue;
+      ctx.globalAlpha = 0.07; ctx.fillStyle = cssVar('--ink');
+      ctx.fillRect(x0, pt, x1 - x0, h); ctx.globalAlpha = 1;
+      ctx.strokeStyle = muted; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, pt); ctx.lineTo(Math.round(x0) + 0.5, pt + h); ctx.stroke();
+      const label = `generating · ${Math.round(d.now - a.since)}s`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = muted;
+      if (x1 - x0 > ctx.measureText(label).width + 12) ctx.fillText(label, x0 + 6, pt + 4);
+      else if (x1 - x0 > 30) ctx.fillText('…', x0 + 6, pt + 4);
+    }
+
+    // markers for /model, /compact, /clear and session start
+    if (this.opts.markers) drawEventMarkers(ctx, d, t => X((t - d.start) / d.bucket), pt, h, pl, w);
+
+    // marks
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const L of layers) {
+      const color = cssVar(this._color(L.k));
+      if (L.lo) {
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) i ? ctx.lineTo(X(i), Y(L.hi[i])) : ctx.moveTo(X(i), Y(L.hi[i]));
+        for (let i = n - 1; i >= 0; i--) ctx.lineTo(X(i), Y(L.lo[i]));
+        ctx.closePath();
+        ctx.globalAlpha = 0.22; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+      }
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) i ? ctx.lineTo(X(i), Y(L.hi[i])) : ctx.moveTo(X(i), Y(L.hi[i]));
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    // hover crosshair, synced across charts
+    const hi = state.hover;
+    if (hi === null || hi >= n || !keys.length) { this.tip.hidden = true; return; }
+    const x = Math.round(X(hi)) + 0.5;
+    ctx.strokeStyle = axis; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, pt); ctx.lineTo(x, pt + h); ctx.stroke();
+    for (const L of layers) {
+      ctx.beginPath(); ctx.arc(X(hi), Y(L.hi[hi]), 4, 0, Math.PI * 2);
+      ctx.fillStyle = cssVar(this._color(L.k)); ctx.fill();
+      ctx.strokeStyle = surface; ctx.lineWidth = 2; ctx.stroke();
+    }
+    if (state.hoverChart !== this) { this.tip.hidden = true; return; }
+    let total = 0;
+    const rows = keys.slice().reverse().map(k => {
+      const v = vals[k][hi]; total += v;
+      return `<div class="r"><span class="sw" style="background:var(${this._color(k)})"></span>${this._name(k)}<b>${fmt(v)}</b></div>` +
+        (this.opts.fit ? `<div class="r">Added in this bucket<b>+${fmt(d.series[k][hi])}</b></div>` : '');
+    }).join('');
+    const t0 = d.start + hi * d.bucket;
+    this.tip.innerHTML = `<div class="t">${timeLabel(t0, d.bucket, true)}${d.bucket > 1 ? ' – ' + timeLabel(t0 + d.bucket, d.bucket) : ''} · ${this.opts.unit}</div>${rows}` +
+      (keys.length > 1 ? `<div class="r tot">Total<b>${fmt(total)}</b></div>` : '');
+    this.tip.hidden = false;
+    const cvTop = this.cv.offsetTop, tipW = this.tip.offsetWidth;
+    const left = this.cv.offsetLeft + x + 14 + tipW > this.card.clientWidth ? this.cv.offsetLeft + x - 14 - tipW : this.cv.offsetLeft + x + 14;
+    this.tip.style.left = Math.max(4, left) + 'px';
+    this.tip.style.top = (cvTop + 8) + 'px';
+  }
+}
+
+const rate = (d, k) => d.series[k].map(v => v / d.bucket);
+function cumulative(d, k) {
+  let s = d.cum_base[k]; return d.series[k].map(v => (s += v));
+}
+const charts = [
+  new TimeChart('chartOut', { keys: ['think', 'out'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
+  new TimeChart('chartIn',  { keys: ['in', 'cw', 'cr'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
+];
+
+// ---------- context size per request (scatter, one point per API call) ----------
+class RequestChart {
+  constructor(id) {
+    this.cv = document.getElementById(id);
+    this.card = this.cv.closest('.card');
+    this.tip = document.createElement('div');
+    this.tip.className = 'tip'; this.tip.hidden = true;
+    this.card.appendChild(this.tip);
+    this.pts = [];
+    this.cv.addEventListener('pointermove', e => this._hover(e.offsetX));
+    this.cv.addEventListener('pointerleave', () => { this.tip.hidden = true; });
+  }
+
+  draw(d) {
+    const cv = this.cv, dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const pl = 52, pr = 10, pt = 8, pb = 22;
+    const w = W - pl - pr, h = H - pt - pb;
+    const n = d.series.think.length;
+    const t0 = d.start, span = Math.max(n * d.bucket, 1);
+    const X = t => pl + Math.max(0, Math.min(1, (t - t0) / span)) * w;
+    const reqs = d.requests || [];
+    let max = 0; for (const r of reqs) if (r.ctx > max) max = r.ctx;
+    const yMax = niceCeil(max || 1000), step = yMax / 4;
+    const Y = v => pt + h - (v / yMax) * h;
+    this.geom = { X, Y, pl, w };
+    this.pts = reqs;
+
+    const grid = cssVar('--grid'), axis = cssVar('--axis'), muted = cssVar('--muted');
+    ctx.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let j = 0; j <= 4; j++) {
+      const v = step * j, y = Math.round(Y(v)) + 0.5;
+      ctx.strokeStyle = j === 0 ? axis : grid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(pl + w, y); ctx.stroke();
+      ctx.fillText(fmtAxis(v, step, yMax), pl - 8, y);
+    }
+    ctx.textBaseline = 'top';
+    const ticks = W < 500 ? 3 : 5;
+    for (let j = 0; j < ticks; j++) {
+      const t = t0 + j * span / (ticks - 1);
+      ctx.textAlign = j === 0 ? 'left' : j === ticks - 1 ? 'right' : 'center';
+      ctx.fillText(timeLabel(t, d.bucket), X(t), pt + h + 6);
+    }
+
+    drawEventMarkers(ctx, d, X, pt, h, pl, w);
+
+    if (!reqs.length) return;
+    for (const m of (d.models || [])) {
+      const pts = reqs.filter(r => r.model === m);
+      if (!pts.length) continue;
+      const color = cssVar(MODEL_COLORS[d.models.indexOf(m) % MODEL_COLORS.length]);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach((r, i) => { const x = X(r.t), y = Y(r.ctx); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      ctx.fillStyle = color;
+      for (const r of pts) { ctx.beginPath(); ctx.arc(X(r.t), Y(r.ctx), 2.5, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+
+  _hover(x) {
+    if (!this.geom || !this.pts.length) { this.tip.hidden = true; return; }
+    const { X, Y } = this.geom;
+    let best = null, bestD = Infinity;
+    for (const r of this.pts) { const dx = X(r.t) - x; if (dx * dx < bestD) { bestD = dx * dx; best = r; } }
+    if (!best || Math.sqrt(bestD) > 40) { this.tip.hidden = true; return; }
+    this.tip.innerHTML = `<div class="t">${timeLabel(best.t, 1, true)} · ${modelLabel(best.model)}</div>` +
+      `<div class="r">Context size<b>${fmt(best.ctx)}</b></div>`;
+    this.tip.hidden = false;
+    const bx = X(best.t), tipW = this.tip.offsetWidth || 180;
+    const left = this.cv.offsetLeft + bx + 14 + tipW > this.card.clientWidth ? this.cv.offsetLeft + bx - 14 - tipW : this.cv.offsetLeft + bx + 14;
+    this.tip.style.left = Math.max(4, left) + 'px';
+    this.tip.style.top = (this.cv.offsetTop + 8) + 'px';
+  }
+}
+const ctxChart = new RequestChart('chartCtx');
+charts.push(ctxChart);
+
+// ---------- per-model mini charts (built/rebuilt when the model list changes) ----------
+let modelCharts = [];
+let builtModels = [];
+function ensureModelPanels(models) {
+  if (JSON.stringify(models) === JSON.stringify(builtModels)) return;
+  builtModels = models.slice();
+  for (let i = charts.length - 1; i >= 0; i--) if (modelCharts.includes(charts[i])) charts.splice(i, 1);
+  modelCharts.forEach(c => c.tip.remove());
+  modelCharts = [];
+
+  document.getElementById('cardModel').hidden = models.length < 2;
+  const legendHtml = models.map((m, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;color:var(--ink2);font-size:12px">` +
+    `<span class="sw" style="background:var(${MODEL_COLORS[i % MODEL_COLORS.length]})"></span>${modelLabel(m)}</span>`
+  ).join('');
+  document.getElementById('modelLegend').innerHTML = legendHtml;
+  document.getElementById('ctxLegend').innerHTML = models.length > 1 ? legendHtml : '';
+
+  const panelsEl = document.getElementById('modelPanels');
+  panelsEl.innerHTML = '';
+  for (const [key, label] of [['out', 'Output'], ['in', 'Input']]) {
+    const el = document.createElement('div');
+    el.className = 'panel';
+    const canvasId = 'model-' + key;
+    el.innerHTML = `<div class="ph"><span>${label} by model</span></div><canvas class="chart mini" id="${canvasId}"></canvas>`;
+    panelsEl.appendChild(el);
+    const chart = new TimeChart(canvasId, {
+      keys: models, mode: 'stack', unit: 'tokens/s', alwaysShow: true,
+      values: (dd, k) => {
+        const n = dd.series.think.length;
+        const arr = (dd.series_model[k] && dd.series_model[k][key]) || new Array(n).fill(0);
+        return arr.map(v => v / dd.bucket);
+      },
+      colorFor: k => MODEL_COLORS[models.indexOf(k) % MODEL_COLORS.length],
+      nameFor: k => modelLabel(k),
+    });
+    charts.push(chart);
+    modelCharts.push(chart);
+  }
+}
+// Cumulative: one small panel per series, each with its own fitted scale.
+const cumPanels = SERIES.map(s => {
+  const el = document.createElement('div');
+  el.className = 'panel';
+  el.innerHTML = `<div class="ph"><span class="sw" style="background:var(${s.c})"></span>${s.name}<b></b></div><canvas class="chart mini" id="cum-${s.k}"></canvas>`;
+  document.getElementById('cumPanels').appendChild(el);
+  const chart = new TimeChart('cum-' + s.k, { keys: [s.k], mode: 'line', values: cumulative, unit: 'running total', fit: true, alwaysShow: true });
+  charts.push(chart);
+  return { k: s.k, el, value: el.querySelector('b') };
+});
+
+// ---------- tiles, status, table ----------
+const sum = (o, ks) => ks.reduce((a, k) => a + (o[k] || 0), 0);
+function drawTiles(d) {
+  document.getElementById('who').textContent = d.user;
+  const gen = (d.activity || []).filter(a => a.kind === 'gen');
+  const tool = (d.activity || []).filter(a => a.kind === 'tool');
+  const oldest = list => d.now - Math.min(...list.map(a => a.since));
+  const sessions = list => list.length > 1 ? ` in ${list.length} sessions` : '';
+  const statusEl = document.getElementById('status');
+  statusEl.classList.toggle('on', gen.length + tool.length > 0);
+  statusEl.classList.toggle('gen', gen.length > 0);
+  document.getElementById('statusText').textContent =
+    gen.length ? `Generating${sessions(gen)} · ${Math.round(oldest(gen))}s (tokens appear when the response completes)`
+    : tool.length ? `Running tool${sessions(tool)} · ${Math.round(oldest(tool))}s`
+    : d.last_activity ? 'Idle · last response ' + ago(d.now - d.last_activity) : 'No activity yet';
+  document.getElementById('tToday').textContent = fmt(sum(d.today, ['think', 'out']));
+  document.getElementById('tTodaySub').textContent = `${fmt(d.today.think)} thinking · ${fmt(d.today.out)} text & tools`;
+  document.getElementById('tInToday').textContent = fmt(sum(d.today, ['in', 'cw', 'cr']));
+  document.getElementById('tInTodaySub').textContent = `${fmt(d.today.in)} fresh · ${fmt(d.today.cw)} cache write · ${fmt(d.today.cr)} cache read`;
+  document.getElementById('t5h').textContent = fmt(sum(d.last5h, ['think', 'out']));
+  document.getElementById('t5hSub').textContent = `${fmt(sum(d.last5h, ['in', 'cw', 'cr']))} input incl. cache`;
+  document.getElementById('tPeak').innerHTML = `${fmt(d.peak)}<small style="font-size:13px;font-weight:400;color:var(--ink2)"> tok/s</small>`;
+  document.getElementById('tPeakSub').textContent = d.peak_ts ? 'at ' + timeLabel(d.peak_ts, 60, true) : '';
+
+  const visOut = ['think', 'out'].filter(k => !state.hidden.has(k));
+  const visIn = ['in', 'cw', 'cr'].filter(k => !state.hidden.has(k));
+  const last = arr => { const n = arr.length; const k = d.bucket === 1 ? Math.min(5, n) : 1; let s = 0; for (let i = n - k; i < n; i++) s += arr[i]; return s / (k * d.bucket); };
+  document.getElementById('nowOut').innerHTML = `${fmt(visOut.reduce((a, k) => a + last(d.series[k]), 0))}<small>tok/s</small>`;
+  document.getElementById('nowIn').innerHTML = `${fmt(visIn.reduce((a, k) => a + last(d.series[k]), 0))}<small>tok/s</small>`;
+  const running = k => d.cum_base[k] + d.series[k].reduce((x, y) => x + y, 0);
+  const tot = SERIES.reduce((a, s) => a + running(s.k), 0);
+  document.getElementById('nowCum').innerHTML = `${fmt(tot)}<small>tokens</small>`;
+  document.getElementById('cumHint').textContent =
+    `running total since ${new Date(d.cum_anchor * 1000).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} 00:00; each panel has its own scale`;
+  for (const p of cumPanels) p.value.textContent = fmt(running(p.k));
+}
+
+function renderTable() {
+  const d = state.data, det = document.getElementById('tableView');
+  if (!d || !det.open) return;
+  const n = d.series.think.length, rows = [];
+  for (let i = n - 1; i >= 0 && rows.length < 300; i--) {
+    if (!SERIES.some(s => d.series[s.k][i] > 0)) continue;
+    rows.push(`<tr><td>${timeLabel(d.start + i * d.bucket, d.bucket, true)}</td>${SERIES.map(s => `<td>${Math.round(d.series[s.k][i]).toLocaleString()}</td>`).join('')}</tr>`);
+  }
+  document.getElementById('table').innerHTML =
+    `<thead><tr><th>Bucket start (${d.bucket}s)</th>${SERIES.map(s => `<th>${s.name}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.join('') || `<tr><td colspan="6">No tokens in this range</td></tr>`}</tbody>`;
+}
+document.getElementById('tableView').addEventListener('toggle', renderTable);
+
+function drawAll() {
+  const d = state.data; if (!d) return;
+  charts.forEach(c => c.draw(d));
+}
+
+// ---------- polling ----------
+let timer = null, inflight = false;
+async function refresh(force) {
+  if (inflight && !force) return;
+  inflight = true;
+  const errEl = document.getElementById('err');
+  try {
+    const res = await fetch('/api/data?range=' + encodeURIComponent(state.range), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (d.range !== state.range) return;
+    state.data = d;
+    if (state.hover !== null && state.hover >= d.series.think.length) state.hover = null;
+    ensureModelPanels(d.models || []);
+    drawTiles(d); drawAll(); renderTable();
+    errEl.hidden = true;
+  } catch (e) {
+    errEl.textContent = 'Cannot reach the collector (' + e.message + '). Is token_meter.py running?';
+    errEl.hidden = false;
+    document.getElementById('status').classList.remove('on');
+    document.getElementById('statusText').textContent = 'Disconnected';
+  } finally {
+    inflight = false;
+    clearTimeout(timer);
+    const bucket = state.data ? state.data.bucket : 1;
+    timer = setTimeout(() => { if (!document.hidden) refresh(); else timer = setTimeout(refresh, 1000); }, bucket <= 5 ? 1000 : 5000);
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(true); });
+window.addEventListener('resize', drawAll);
+
+buildLegends();
+applyTheme();
+refresh(true);
+</script>
+</body>
+</html>
