@@ -2,7 +2,7 @@
 
 A live, Task-Manager-style dashboard of your Claude Code token usage. 
 
-<img width="931" height="1305" alt="Screenshot_15-9-2026_23436_127 0 0 1" src="https://github.com/user-attachments/assets/a26d4d1f-3bf4-44ef-8a4a-0afd840df55e" />
+<img width="993" height="1386" alt="Screenshot_15-9-2026_235320_127 0 0 1" src="https://github.com/user-attachments/assets/bf1712fa-4f35-4dd0-82e7-b2f33bb5d015" />
 
 
 It reads the
