@@ -134,8 +134,8 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
       <canvas class="chart" id="chartOut"></canvas>
     </div>
     <div class="card" id="cardIn">
-      <div class="card-head"><h2>Input rate</h2><span class="hint">tokens/s, stacked; cache read is usually much larger</span><span class="now" id="nowIn">0<small>tok/s</small></span></div>
-      <div class="legend" data-keys="in,cw,cr"></div>
+      <div class="card-head"><h2>Input rate</h2><span class="hint">tokens/s, stacked; cache read is tracked separately below</span><span class="now" id="nowIn">0<small>tok/s</small></span></div>
+      <div class="legend" data-keys="in,cw"></div>
       <canvas class="chart" id="chartIn"></canvas>
     </div>
     <div class="card" id="cardModel" hidden>
@@ -194,7 +194,7 @@ const store = {
 };
 const state = {
   range: store.get('range', '5m'),
-  hidden: new Set(store.get('hidden', ['cr'])),
+  hidden: new Set(store.get('hidden', [])),
   data: null,
   hover: null,
 };
@@ -469,7 +469,7 @@ function cumulative(d, k) {
 }
 const charts = [
   new TimeChart('chartOut', { keys: ['think', 'out'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
-  new TimeChart('chartIn',  { keys: ['in', 'cw', 'cr'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
+  new TimeChart('chartIn',  { keys: ['in', 'cw'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
 ];
 
 // ---------- context size per request (scatter, one point per API call) ----------
@@ -635,7 +635,7 @@ function drawTiles(d) {
   document.getElementById('tPeakSub').textContent = d.peak_ts ? 'at ' + timeLabel(d.peak_ts, 60, true) : '';
 
   const visOut = ['think', 'out'].filter(k => !state.hidden.has(k));
-  const visIn = ['in', 'cw', 'cr'].filter(k => !state.hidden.has(k));
+  const visIn = ['in', 'cw'];
   const last = arr => { const n = arr.length; const k = d.bucket === 1 ? Math.min(5, n) : 1; let s = 0; for (let i = n - k; i < n; i++) s += arr[i]; return s / (k * d.bucket); };
   document.getElementById('nowOut').innerHTML = `${fmt(visOut.reduce((a, k) => a + last(d.series[k]), 0))}<small>tok/s</small>`;
   document.getElementById('nowIn').innerHTML = `${fmt(visIn.reduce((a, k) => a + last(d.series[k]), 0))}<small>tok/s</small>`;

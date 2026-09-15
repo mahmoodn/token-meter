@@ -21,9 +21,10 @@ Options: `--projects <dir>` (defaults to `$CLAUDE_CONFIG_DIR/projects` or
 ## What you see
 
 - **Output rate**: thinking and text/tool-call tokens per second, stacked.
-- **Input rate**: fresh input, cache writes and cache reads per second, stacked.
-  Cache read is hidden by default because it re-counts the whole context every turn
-  and dwarfs everything else; click its legend entry to show it.
+- **Input rate**: fresh input and cache writes per second, stacked. Cache read is
+  left out of this chart — it re-counts the whole context every turn and would
+  dwarf everything else; it's still in the cumulative panel and in the total
+  context size on the per-request chart below.
 - **By model**: output and input rate, stacked by model instead of by token type.
   Only shown once a second model has actually been used (e.g. after switching with
   `/model`); each model gets a fixed color for the life of the page.
