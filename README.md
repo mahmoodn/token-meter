@@ -1,9 +1,10 @@
 # Token Meter
 
-A live, Task-Manager-style dashboard of your Claude Code token usage. 
+A live, Task-Manager-style dashboard of your Claude Code token usage — across every
+project, and, via the Local/Remote toggle, across a WSL install running alongside
+Windows.
 
-<img width="993" height="1386" alt="Screenshot_15-9-2026_235320_127 0 0 1" src="https://github.com/user-attachments/assets/bf1712fa-4f35-4dd0-82e7-b2f33bb5d015" />
-
+<img width="1133" alt="Token Meter dashboard, viewing a Remote (WSL) meter with the project filter set to All projects" src="screenshot.jpeg" />
 
 It reads the
 transcripts Claude Code already writes to `~/.claude/projects/**/*.jsonl`, so it costs
@@ -15,8 +16,10 @@ python token_meter.py            # opens http://127.0.0.1:8765/
 python token_meter.py --no-browser --port 9000
 ```
 
-Options: `--projects <dir>` (defaults to `$CLAUDE_CONFIG_DIR/projects` or
-`~/.claude/projects`), `--interval <s>` transcript poll interval, `--host`.
+Options: `--projects <dir>` (repeatable; defaults to `$CLAUDE_CONFIG_DIR/projects` or
+`~/.claude/projects`) — pass it more than once to merge several Claude Code
+`projects` folders into one meter, `--interval <s>` transcript poll interval,
+`--host`.
 
 ## What you see
 
@@ -40,9 +43,24 @@ Options: `--projects <dir>` (defaults to `$CLAUDE_CONFIG_DIR/projects` or
   `/compact` (with the before/after token counts) and `/clear`.
 - Tiles for today, the last 5 hours, and the 7-day peak output speed; a table view of
   the buckets.
+- **Project filter**: a dropdown next to the range picker scopes every chart, the
+  requests scatter and the event markers to one Claude Code project (i.e. one cwd a
+  session was launched from). Defaults to "All projects".
+- **Local / Remote (WSL) source toggle**: if you also run Claude Code inside WSL,
+  its transcripts live under WSL's own `~/.claude/projects` — invisible to a meter
+  running natively on Windows. Rather than have one meter poll both filesystems
+  (slow, over `\\wsl.localhost\...`), run a second, lightweight meter *inside* WSL
+  and point this toggle at it (guesses `http://localhost:8766`; click the ⚙ to
+  change it). Clicking **Remote** when nothing answers there offers to start it for
+  you — the Windows meter runs `wsl.exe` to launch its WSL counterpart, but only
+  after showing the exact command in a confirm dialog, and only relaunches
+  something it isn't already tracking as running. A meter it started this way is
+  stopped again when the Windows meter shuts down; one you started by hand is left
+  alone either way.
 
 Ranges: 1 min / 5 min (1 s buckets), 15 min (5 s), 1 h (10 s), 6 h (1 min),
-24 h (5 min), 7 d (30 min). Totals cover every project for the current OS user.
+24 h (5 min), 7 d (30 min). Totals cover every project for the current OS user and
+source, or one project if you've picked one from the dropdown.
 
 ## How the numbers are derived
 
