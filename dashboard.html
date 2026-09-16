@@ -56,6 +56,10 @@ h1 { font-size: 18px; font-weight: 600; margin: 0; }
 .seg button + button { border-left: 1px solid var(--border); }
 .seg button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); font-weight: 600; }
 .ghost { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+#project {
+  font: inherit; font-size: 13px; color: var(--ink2); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; max-width: 220px;
+}
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; min-width: 0; }
 .top { margin-bottom: 16px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
@@ -114,6 +118,8 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
     <span class="who" id="who"></span>
     <span class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
     <span class="spacer"></span>
+    <div class="seg" id="sources" role="group" aria-label="Source"></div>
+    <select id="project" title="Project" aria-label="Project"><option value="">All projects</option></select>
     <div class="seg" id="ranges" role="group" aria-label="Time range"></div>
     <button class="ghost" id="theme" title="Theme">Theme: system</button>
   </header>
@@ -194,6 +200,9 @@ const store = {
 };
 const state = {
   range: store.get('range', '5m'),
+  project: store.get('project', ''),   // '' = all projects
+  source: store.get('source', 'local'),        // 'local' | 'remote'
+  remoteBase: store.get('remoteBase', ''),      // e.g. 'http://localhost:8766'
   hidden: new Set(store.get('hidden', [])),
   data: null,
   hover: null,
@@ -209,6 +218,9 @@ function fmt(v) {
   return v.toFixed(1);
 }
 const pad = n => String(n).padStart(2, '0');
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 function timeLabel(t, bucket, full) {
   const d = new Date(t * 1000);
   const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
@@ -244,6 +256,86 @@ function niceCeil(v) {
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // ---------- controls ----------
+// A second meter running elsewhere (typically the same box's WSL side, which keeps its
+// own ~/.claude/projects and can't be seen by a native meter without the overhead of
+// polling it over \\wsl.localhost\...). The dashboard just fetches its small JSON from
+// that port instead; neither meter ever touches the other's filesystem.
+function renderSources() {
+  const sourcesEl = document.getElementById('sources');
+  sourcesEl.innerHTML = '';
+  const entries = [{ id: 'local', label: 'Local', base: '' }, { id: 'remote', label: 'Remote (WSL)', base: state.remoteBase }];
+  for (const s of entries) {
+    const b = document.createElement('button');
+    b.textContent = s.label;
+    b.setAttribute('aria-pressed', String(s.id === state.source));
+    b.title = s.id === 'remote' ? (state.remoteBase || '(not configured — click to set)') : 'This machine';
+    b.onclick = () => {
+      if (s.id === 'remote' && !state.remoteBase) return editRemote();
+      if (s.id === state.source) return;
+      state.source = s.id; store.set('source', state.source);
+      state.project = ''; store.set('project', '');   // project keys aren't comparable across sources
+      knownProjects = null;
+      if (s.id === 'remote') remoteLaunchTried = false;   // give a fresh switch one auto-launch attempt
+      sourcesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      refresh(true);
+    };
+    b.oncontextmenu = (e) => { if (s.id === 'remote') { e.preventDefault(); editRemote(); } };
+    sourcesEl.appendChild(b);
+  }
+  const gear = document.createElement('button');
+  gear.textContent = '⚙'; gear.title = 'Set remote meter URL (e.g. http://localhost:8766)';
+  gear.onclick = editRemote;
+  sourcesEl.appendChild(gear);
+}
+function editRemote() {
+  const v = prompt('Remote meter URL (the other token_meter.py instance, e.g. one running inside WSL):', state.remoteBase || 'http://localhost:8766');
+  if (v === null) return;
+  state.remoteBase = v.trim().replace(/\/$/, ''); store.set('remoteBase', state.remoteBase);
+  remoteLaunchTried = false;
+  renderSources();
+  if (state.source === 'remote') refresh(true);
+}
+// The Windows-side meter can shell out to `wsl.exe` to start its WSL counterpart on
+// demand (see launch_remote() server-side); this is only ever asked of the LOCAL
+// origin (relative fetch), since a WSL-hosted meter can't launch a Windows process
+// the same way. One attempt per switch-to-Remote, not one per failed poll.
+let remoteLaunchTried = false;
+async function postLaunchRemote(port, confirmed) {
+  const res = await fetch('/api/launch-remote', {
+    method: 'POST', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ port, confirm: confirmed }),
+  });
+  return res.json();
+}
+async function tryLaunchRemote() {
+  if (remoteLaunchTried) return;
+  remoteLaunchTried = true;
+  const m = (state.remoteBase || '').match(/:(\d+)(?:\/|$)/);
+  if (!m) return;
+  const port = Number(m[1]);
+  try {
+    // Dry run first: ask what it *would* run, without running anything.
+    const preview = await postLaunchRemote(port, false);
+    if (!preview.ok) return;   // e.g. this meter isn't on Windows, or wsl.exe is missing
+    if (preview.running) {
+      // The browser's own fetch just failed (that's why we're here), but the local
+      // server's probe says something's answering on that port — a transient hiccup,
+      // most likely. Nothing to launch either way; just retry the real fetch.
+      document.getElementById('statusText').textContent =
+        preview.launched_by_us ? 'Reconnecting to WSL meter…' : 'Reconnecting…';
+      setTimeout(() => { if (state.source === 'remote') refresh(true); }, 500);
+      return;
+    }
+    const cmd = (preview.command || []).join(' ');
+    const ask = `Nothing is answering at ${state.remoteBase}.\n\nStart it by running this in WSL?\n\n  ${cmd}`;
+    if (!confirm(ask)) return;
+    document.getElementById('statusText').textContent = 'Starting WSL meter…';
+    const j = await postLaunchRemote(port, true);
+    if (j.ok) setTimeout(() => { if (state.source === 'remote') refresh(true); }, 2500);
+  } catch {}
+}
+
 const rangesEl = document.getElementById('ranges');
 for (const [key, label] of RANGES) {
   const b = document.createElement('button');
@@ -256,6 +348,25 @@ for (const [key, label] of RANGES) {
   };
   rangesEl.appendChild(b);
 }
+
+const projectEl = document.getElementById('project');
+let knownProjects = null;   // last "key|label" list rendered, so options aren't rebuilt every poll
+function ensureProjectOptions(projects) {
+  const sig = (projects || []).map(p => p.key + '|' + p.label).join('\n');
+  if (sig === knownProjects) return;
+  // First render restores the persisted selection; later rebuilds keep whatever's picked now.
+  const current = knownProjects === null ? state.project : projectEl.value;
+  knownProjects = sig;
+  projectEl.innerHTML = '<option value="">All projects</option>' +
+    (projects || []).map(p => `<option value="${escapeHtml(p.key)}">${escapeHtml(p.label)}</option>`).join('');
+  // Keep the selection if it still exists; otherwise fall back to "All" (e.g. a project aged out).
+  if ([...projectEl.options].some(o => o.value === current)) projectEl.value = current;
+  else { projectEl.value = ''; state.project = ''; store.set('project', ''); }
+}
+projectEl.onchange = () => {
+  state.project = projectEl.value; store.set('project', state.project);
+  refresh(true);
+};
 
 const THEMES = ['system', 'light', 'dark'];
 let theme = store.get('theme', 'system');
@@ -676,20 +787,32 @@ async function refresh(force) {
   inflight = true;
   const errEl = document.getElementById('err');
   try {
-    const res = await fetch('/api/data?range=' + encodeURIComponent(state.range), { cache: 'no-store' });
+    if (state.source === 'remote' && !state.remoteBase) { state.source = 'local'; store.set('source', 'local'); renderSources(); }
+    const source = state.source, base = source === 'remote' ? state.remoteBase : '';
+    const url = base + '/api/data?range=' + encodeURIComponent(state.range) +
+      (state.project ? '&project=' + encodeURIComponent(state.project) : '');
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
-    if (d.range !== state.range) return;
+    if (d.range !== state.range || source !== state.source) return;   // stale: range or source changed mid-flight
+    // The server falls back to "all projects" for an unknown/aged-out key; mirror that
+    // back into our state instead of looping on a request it'll never satisfy.
+    if ((d.project || '') !== state.project) { state.project = d.project || ''; store.set('project', state.project); }
     state.data = d;
     if (state.hover !== null && state.hover >= d.series.think.length) state.hover = null;
+    ensureProjectOptions(d.projects);
     ensureModelPanels(d.models || []);
     drawTiles(d); drawAll(); renderTable();
     errEl.hidden = true;
   } catch (e) {
-    errEl.textContent = 'Cannot reach the collector (' + e.message + '). Is token_meter.py running?';
-    errEl.hidden = false;
-    document.getElementById('status').classList.remove('on');
-    document.getElementById('statusText').textContent = 'Disconnected';
+    if (state.source === 'remote' && !remoteLaunchTried) {
+      tryLaunchRemote();
+    } else {
+      errEl.textContent = 'Cannot reach the collector (' + e.message + '). Is token_meter.py running?';
+      errEl.hidden = false;
+      document.getElementById('status').classList.remove('on');
+      document.getElementById('statusText').textContent = 'Disconnected';
+    }
   } finally {
     inflight = false;
     clearTimeout(timer);
@@ -702,6 +825,7 @@ window.addEventListener('resize', drawAll);
 
 buildLegends();
 applyTheme();
+renderSources();
 refresh(true);
 </script>
 </body>
