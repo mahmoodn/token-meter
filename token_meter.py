@@ -6,10 +6,14 @@ Tails the local Claude Code transcripts (~/.claude/projects/**/*.jsonl), turns t
 a live dashboard on http://127.0.0.1:8765. Standard library only; costs no tokens.
 """
 import argparse
+import atexit
 import getpass
 import json
 import os
+import platform
 import re
+import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -17,6 +21,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 # Series order is shared with the dashboard: thinking, text/tool output, fresh input,
 # cache write, cache read.
@@ -98,19 +103,37 @@ def request_kind(msg):
     return "request"
 
 
+def _sum_models(model_bucket):
+    """Collapse a {model: [5 floats]} bucket (as stored per project) into one vector."""
+    out = [0.0] * 5
+    if not model_bucket:
+        return out
+    for vec in model_bucket.values():
+        for i in range(5):
+            out[i] += vec[i]
+    return out
+
+
 class Meter:
-    def __init__(self, root):
-        self.root = Path(root)
+    def __init__(self, roots):
+        # One or more `~/.claude/projects`-style roots (e.g. a native one plus a WSL
+        # one), so usage from multiple Claude Code install locations on the same
+        # machine can be merged into a single dashboard.
+        self.roots = [Path(r) for r in roots]
         self.lock = threading.Lock()
         self.sec = {}      # epoch second -> [5 floats]
         self.minute = {}   # epoch minute -> [5 floats]
         self.sec_model = {}      # epoch second -> {model: [5 floats]}
         self.minute_model = {}   # epoch minute -> {model: [5 floats]}
+        self.sec_pm = {}      # epoch second -> {project: {model: [5 floats]}}
+        self.minute_pm = {}   # epoch minute -> {project: {model: [5 floats]}}
         self.models = []          # model ids, fixed order by first-used timestamp (categorical color slot)
         self.model_first_ts = {}  # model id -> earliest timestamp seen (for ordering self.models)
-        self.events = []   # [ts, kind, extra] for session/model/compact/clear markers
-        self.msgs = {}     # message id -> [start, end, vector, model]
-        self.files = {}    # path -> [offset, partial line, last timestamp]
+        self.projects = {}        # project key -> {"label": cwd or dir name, "first_ts": ts}
+        self.project_models = {}  # project key -> set of model ids seen in that project
+        self.events = []   # [ts, kind, extra, project] for session/model/compact/clear markers
+        self.msgs = {}     # message id -> [start, end, vector, model, project]
+        self.files = {}    # path -> [offset, partial line, last timestamp, ...]
         self.peak = 0.0
         self.peak_ts = 0
         self.last_activity = 0.0
@@ -119,7 +142,7 @@ class Meter:
 
     # --- ingestion -------------------------------------------------------------
 
-    def _spread(self, start, end, vec, sign, model=None):
+    def _spread(self, start, end, vec, sign, model=None, project=None):
         """Distribute a response's tokens uniformly over [start, end)."""
         if not any(vec):
             return
@@ -146,6 +169,12 @@ class Meter:
                 for i in range(5):
                     msb[i] += add[i]
                     mmb[i] += add[i]
+            if project and model:
+                psb = self.sec_pm.setdefault(t_bucket, {}).setdefault(project, {}).setdefault(model, [0.0] * 5)
+                pmb = self.minute_pm.setdefault(t_bucket // 60, {}).setdefault(project, {}).setdefault(model, [0.0] * 5)
+                for i in range(5):
+                    psb[i] += add[i]
+                    pmb[i] += add[i]
 
     def _line(self, raw, state):
         if not raw.strip():
@@ -159,9 +188,15 @@ class Meter:
         ts = parse_ts(entry.get("timestamp"))
         if ts is None:
             return
+        project = state[6]
+        cwd = entry.get("cwd")
+        if cwd and self.projects.get(project, {}).get("label") != cwd:
+            self.projects.setdefault(project, {"first_ts": ts})["label"] = cwd
+        self.projects.setdefault(project, {"label": project, "first_ts": ts})
+        self.projects[project]["first_ts"] = min(self.projects[project]["first_ts"], ts)
         if not state[5]:
             # First entry seen in this transcript file: mark it as a session start.
-            self.events.append([ts, "session", None])
+            self.events.append([ts, "session", None, project])
             state[5] = True
         msg = entry.get("message")
         if (
@@ -179,17 +214,18 @@ class Meter:
             if model not in self.models:
                 self.models.append(model)
             self.model_first_ts[model] = min(self.model_first_ts.get(model, ts), ts)
+            self.project_models.setdefault(project, set()).add(model)
             rec = self.msgs.get(msg["id"])
             if rec is None:
                 start = state[2] if state[2] and state[2] <= ts else ts - 1
                 start = max(start, ts - MAX_SPREAD)
-                self._spread(start, ts, vec, +1, model)
-                self.msgs[msg["id"]] = [start, ts, vec, model]
+                self._spread(start, ts, vec, +1, model, project)
+                self.msgs[msg["id"]] = [start, ts, vec, model, project]
             elif vec != rec[2] or ts > rec[1]:
-                self._spread(rec[0], rec[1], rec[2], -1, rec[3])
+                self._spread(rec[0], rec[1], rec[2], -1, rec[3], rec[4])
                 rec[1] = min(max(ts, rec[1]), rec[0] + MAX_SPREAD)
                 rec[2] = vec
-                self._spread(rec[0], rec[1], vec, +1, rec[3])
+                self._spread(rec[0], rec[1], vec, +1, rec[3], rec[4])
             self.last_activity = max(self.last_activity, ts)
             # Response landed: either Claude Code now runs the requested tool, or the turn is over.
             state[3] = "tool" if msg.get("stop_reason") == "tool_use" else None
@@ -208,32 +244,42 @@ class Meter:
             if cmd:
                 name = cmd.group(1).lower()
                 if name in ("model", "clear"):
-                    self.events.append([ts, name, None])
+                    self.events.append([ts, name, None, project])
             else:
                 switched = MODEL_STDOUT_RE.search(text)
                 if switched and self.events and self.events[-1][1] == "model" and ts - self.events[-1][0] < 5:
                     self.events[-1][2] = {"to": switched.group(1)}
         elif entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
             meta = entry.get("compactMetadata") or {}
-            self.events.append([ts, "compact", {"pre": meta.get("preTokens"), "post": meta.get("postTokens")}])
+            self.events.append([ts, "compact", {"pre": meta.get("preTokens"), "post": meta.get("postTokens")}, project])
 
     def _discover(self, now):
         cutoff = now - HISTORY_KEEP
-        try:
-            paths = list(self.root.rglob("*.jsonl"))
-        except OSError:
-            return
-        for path in paths:
-            if path in self.files:
-                continue
+        for ridx, root in enumerate(self.roots):
             try:
-                st = path.stat()
+                paths = list(root.rglob("*.jsonl"))
             except OSError:
                 continue
-            # Untouched for longer than the history window: nothing to show, skip it.
-            offset = st.st_size if st.st_mtime < cutoff else 0
-            # offset, partial line, last request time, activity ("gen"/"tool"/None), since, session marked
-            self.files[path] = [offset, b"", None, None, 0.0, False]
+            for path in paths:
+                if path in self.files:
+                    continue
+                try:
+                    st = path.stat()
+                except OSError:
+                    continue
+                # Untouched for longer than the history window: nothing to show, skip it.
+                offset = st.st_size if st.st_mtime < cutoff else 0
+                # One Claude Code project directory per distinct cwd; prefix with the root
+                # index so two roots (e.g. native + WSL) can't collide on the same name.
+                try:
+                    project_dir = path.relative_to(root).parts[0]
+                except (ValueError, IndexError):
+                    project_dir = "unknown"
+                project = f"{ridx}:{project_dir}"
+                self.projects.setdefault(project, {"label": project_dir, "first_ts": st.st_mtime})
+                # offset, partial line, last request time, activity ("gen"/"tool"/None),
+                # since, session marked, project key
+                self.files[path] = [offset, b"", None, None, 0.0, False, project]
 
     def poll(self):
         now = time.time()
@@ -273,10 +319,12 @@ class Meter:
             if b[0] + b[1] > self.peak:
                 self.peak, self.peak_ts = b[0] + b[1], k
             self.sec_model.pop(k, None)
+            self.sec_pm.pop(k, None)
         min_cut = (now - HISTORY_KEEP) // 60
         for k in [k for k in self.minute if k < min_cut]:
             del self.minute[k]
             self.minute_model.pop(k, None)
+            self.minute_pm.pop(k, None)
         for k in [k for k, r in self.msgs.items() if r[1] < now - HISTORY_KEEP]:
             del self.msgs[k]
         cutoff = now - HISTORY_KEEP
@@ -292,7 +340,7 @@ class Meter:
 
     # --- queries ---------------------------------------------------------------
 
-    def snapshot(self, range_key):
+    def snapshot(self, range_key, project_key=None):
         span, bucket = RANGES.get(range_key, RANGES["5m"])
         now = time.time()
         end = (int(now) // bucket + 1) * bucket
@@ -308,17 +356,28 @@ class Meter:
         last5h = [0.0] * 5
         cum_base = [0.0] * 5
         with self.lock:
-            if bucket < 60:
-                source, unit, lo, hi = self.sec, 1, start, end
+            # A selected project scopes everything to the project/model bucket (which
+            # carries both dimensions); no filter uses the plain totals as before.
+            proj = project_key if project_key in self.projects else None
+            if proj is None:
+                sec_all, minute_all = self.sec, self.minute
+                msource_all = self.sec_model if bucket < 60 else self.minute_model
             else:
-                source, unit, lo, hi = self.minute, 60, start // 60, end // 60
+                sec_all = {k: _sum_models(v.get(proj)) for k, v in self.sec_pm.items() if proj in v}
+                minute_all = {k: _sum_models(v.get(proj)) for k, v in self.minute_pm.items() if proj in v}
+                pmsource = self.sec_pm if bucket < 60 else self.minute_pm
+                msource_all = {k: v.get(proj, {}) for k, v in pmsource.items() if proj in v}
+            if bucket < 60:
+                source, unit, lo, hi = sec_all, 1, start, end
+            else:
+                source, unit, lo, hi = minute_all, 60, start // 60, end // 60
             for key in range(lo, hi):
                 b = source.get(key)
                 if b:
                     idx = (key * unit - start) // bucket
                     for i in range(5):
                         series[i][idx] += b[i]
-            for key, b in self.minute.items():
+            for key, b in minute_all.items():
                 t = key * 60
                 if t >= midnight:
                     for i in range(5):
@@ -330,15 +389,14 @@ class Meter:
                     for i in range(5):
                         cum_base[i] += b[i]
             for t in range(minute_start, start):  # partial minute before a 1 s / 5 s / 10 s range
-                b = self.sec.get(t)
+                b = sec_all.get(t)
                 if b:
                     for i in range(5):
                         cum_base[i] += b[i]
             # Per-model output/input rate, same bucketing as the totals above.
-            msource = self.sec_model if bucket < 60 else self.minute_model
             series_model = {}
             for key in range(lo, hi):
-                mb = msource.get(key)
+                mb = msource_all.get(key)
                 if not mb:
                     continue
                 idx = (key * unit - start) // bucket
@@ -350,24 +408,33 @@ class Meter:
             requests = sorted(
                 (
                     {"t": round(rec[1], 1), "ctx": round(rec[2][2] + rec[2][3] + rec[2][4]), "model": rec[3]}
-                    for rec in self.msgs.values() if start <= rec[1] <= now + 1
+                    for rec in self.msgs.values()
+                    if start <= rec[1] <= now + 1 and (proj is None or rec[4] == proj)
                 ),
                 key=lambda r: r["t"],
             )
             events = sorted(
-                ({"t": e[0], "kind": e[1], "extra": e[2]} for e in self.events if start <= e[0] <= now + 1),
+                (
+                    {"t": e[0], "kind": e[1], "extra": e[2]}
+                    for e in self.events
+                    if start <= e[0] <= now + 1 and (proj is None or e[3] == proj)
+                ),
                 key=lambda e: e["t"],
             )
             activity = [
                 {"kind": st[3], "since": st[4]}
                 for st in self.files.values()
                 if st[3] and now - st[4] < (MAX_SPREAD if st[3] == "gen" else TOOL_STALE)
+                and (proj is None or st[6] == proj)
             ]
             # 7-day peak: pruned seconds are folded into self.peak; recent ones are live.
-            peak, peak_ts = self.peak, self.peak_ts
-            for k, b in self.sec.items():
+            # (The fold-in is global only, so a project-filtered peak only reflects the
+            # currently-held ~2h of seconds, not the full 7-day history.)
+            peak, peak_ts = (self.peak, self.peak_ts) if proj is None else (0.0, 0)
+            for k, b in sec_all.items():
                 if b[0] + b[1] > peak:
                     peak, peak_ts = b[0] + b[1], k
+            models_in_scope = self.project_models.get(proj, self.models) if proj else self.models
             payload = {
                 "user": USER,
                 "now": now,
@@ -379,7 +446,9 @@ class Meter:
                 "last5h": {f: round(max(last5h[i], 0.0)) for i, f in enumerate(FIELDS)},
                 "cum_base": {f: round(max(cum_base[i], 0.0), 2) for i, f in enumerate(FIELDS)},
                 "cum_anchor": anchor,
-                "models": sorted(self.models, key=lambda m: self.model_first_ts.get(m, 0)),
+                "models": sorted(
+                    (m for m in self.models if m in models_in_scope), key=lambda m: self.model_first_ts.get(m, 0)
+                ),
                 "series_model": {
                     m: {"out": [round(v, 2) for v in s["out"]], "in": [round(v, 2) for v in s["in"]]}
                     for m, s in series_model.items()
@@ -392,6 +461,14 @@ class Meter:
                 "last_activity": self.last_activity,
                 "active": now - self.last_activity < ACTIVE_SECONDS,
                 "files": len(self.files),
+                "project": proj,
+                "projects": sorted(
+                    (
+                        {"key": key, "label": info["label"]}
+                        for key, info in self.projects.items()
+                    ),
+                    key=lambda p: p["label"].lower(),
+                ),
             }
         return payload
 
@@ -408,9 +485,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, b"dashboard.html missing", "text/plain")
             return self._send(200, body, "text/html; charset=utf-8")
         if url.path == "/api/data":
-            key = parse_qs(url.query).get("range", ["5m"])[0]
-            body = json.dumps(self.meter.snapshot(key), separators=(",", ":")).encode()
+            qs = parse_qs(url.query)
+            key = qs.get("range", ["5m"])[0]
+            project = qs.get("project", [None])[0]
+            body = json.dumps(self.meter.snapshot(key, project), separators=(",", ":")).encode()
             return self._send(200, body, "application/json")
+        self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        url = urlparse(self.path)
+        if url.path == "/api/launch-remote":
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                req = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                req = {}
+            try:
+                port = int(req.get("port", 8766))
+            except (TypeError, ValueError):
+                return self._send(400, json.dumps({"ok": False, "message": "bad port"}).encode(), "application/json")
+            result = launch_remote(port, confirm=bool(req.get("confirm")))
+            body = json.dumps(result).encode()
+            return self._send(200 if result["ok"] else 500, body, "application/json")
         self._send(404, b"not found", "text/plain")
 
     def _send(self, code, body, ctype):
@@ -418,6 +514,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # Lets a dashboard served by one meter (e.g. native Windows) fetch /api/data from
+        # another meter on a different port (e.g. one running inside WSL) for the Local/
+        # Remote source toggle, without either meter polling the other's filesystem.
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
@@ -440,25 +540,111 @@ def current_user():
 USER = current_user()
 
 
+def _win_to_wsl_path(path):
+    """`C:\\Users\\me\\...\\token_meter.py` -> `/mnt/c/Users/me/.../token_meter.py`."""
+    m = re.match(r"^([A-Za-z]):[\\/](.*)$", str(path))
+    if not m:
+        return None
+    drive, rest = m.group(1).lower(), m.group(2).replace("\\", "/")
+    return f"/mnt/{drive}/{rest}"
+
+
+def _already_listening(port, timeout=1.0):
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/data?range=1m", timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def launch_remote(port, confirm=False):
+    """Start a second `token_meter.py` inside WSL, for the dashboard's Remote toggle.
+
+    Only makes sense from the Windows side: WSL already sees its own native
+    ~/.claude/projects, so this is purely "spin up the WSL counterpart on demand"
+    rather than anything symmetric. Runs the same script this process is running
+    (translated to its /mnt/<drive>/... path), so it always matches this checkout.
+
+    `confirm=False` (the default) is a dry run: it reports what *would* run, without
+    running it, so the dashboard can show the exact command in a confirm dialog
+    before the caller comes back with `confirm=True` to actually launch it."""
+    if platform.system() != "Windows":
+        return {"ok": False, "message": "Launching a WSL meter is only supported when this meter runs on Windows."}
+    if not (shutil.which("wsl.exe") or shutil.which("wsl")):
+        return {"ok": False, "message": "wsl.exe not found on PATH."}
+    if _already_listening(port):
+        # Distinguish "we started this and it's still alive" (safe to claim/clean up
+        # on our own exit) from "something else is answering there" (someone's own
+        # WSL session, or a leftover from before this process restarted — leave it
+        # alone either way, but the dashboard can say which it is).
+        return {"ok": True, "message": "already running", "running": True, "launched_by_us": port in _launched_remote_ports}
+    wsl_path = _win_to_wsl_path((HERE / "token_meter.py").resolve())
+    if not wsl_path:
+        return {"ok": False, "message": "Could not translate this script's path to a WSL path (not on a drive letter?)."}
+    command = ["wsl.exe", "-e", "python3", wsl_path, "--port", str(port), "--no-browser"]
+    if not confirm:
+        return {"ok": True, "message": "ready", "running": False, "command": command}
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+    except OSError as exc:
+        return {"ok": False, "message": f"Failed to launch: {exc}"}
+    # Remember it so this process's own shutdown (Ctrl+C, atexit) can stop it too —
+    # `wsl.exe -e ...` detaches once launched, so a plain Ctrl+C here otherwise leaves
+    # the WSL-side python3 running forever, invisible from the Windows side.
+    _launched_remote_ports.add(port)
+    return {"ok": True, "message": "launching", "running": False, "command": command}
+
+
+_launched_remote_ports = set()   # ports this process itself launched a WSL meter on
+
+
+def stop_launched_remotes():
+    for port in list(_launched_remote_ports):
+        try:
+            # Matches this exact invocation (script + port), so it can't catch an
+            # unrelated meter someone started by hand on a different port.
+            subprocess.run(
+                ["wsl.exe", "-e", "pkill", "-f", f"token_meter.py --port {port} "],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        _launched_remote_ports.discard(port)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Live Claude Code token meter")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--projects", default=default_projects_dir(), help="Claude Code projects folder")
+    parser.add_argument(
+        "--projects",
+        action="append",
+        help="Claude Code projects folder (repeatable, e.g. to add a WSL "
+        "\\\\wsl.localhost\\<distro>\\home\\<user>\\.claude\\projects path alongside the "
+        "native one); defaults to the local ~/.claude/projects",
+    )
     parser.add_argument("--interval", type=float, default=1.0, help="transcript poll interval (s)")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
+    roots = args.projects or [default_projects_dir()]
 
-    meter = Meter(args.projects)
+    meter = Meter(roots)
     started = time.time()
     meter.poll()  # initial backfill of the history window
-    print(f"Scanned {len(meter.files)} transcripts in {time.time() - started:.2f}s ({args.projects})")
+    print(f"Scanned {len(meter.files)} transcripts in {time.time() - started:.2f}s ({', '.join(roots)})")
     threading.Thread(target=meter.run, args=(args.interval,), daemon=True).start()
 
     Handler.meter = meter
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     url = f"http://{args.host}:{args.port}/"
     print(f"Token meter for {USER}: {url}  (Ctrl+C to stop)")
+    # Also stop any WSL meter this process itself launched via the Remote toggle —
+    # atexit covers Ctrl+C, a normal return, and an unhandled exception alike.
+    atexit.register(stop_launched_remotes)
     if not args.no_browser:
         webbrowser.open(url)
     try:
