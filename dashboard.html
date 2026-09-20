@@ -11,7 +11,7 @@
   --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
   --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10);
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
-  --m1: #008300; --m2: #4a3aa7; --m3: #e34948;
+  --m1: #008300; --m2: #4a3aa7; --m3: #e34948; --m4: #0a9992; --m5: #2f92c2;
   --good: #0ca30c;
 }
 @media (prefers-color-scheme: dark) {
@@ -21,7 +21,7 @@
     --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10);
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
-    --m1: #008300; --m2: #9085e9; --m3: #e66767;
+    --m1: #008300; --m2: #9085e9; --m3: #e66767; --m4: #009690; --m5: #007dac;
   }
 }
 :root[data-theme="dark"] {
@@ -30,7 +30,7 @@
   --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10);
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
-  --m1: #008300; --m2: #9085e9; --m3: #e66767;
+  --m1: #008300; --m2: #9085e9; --m3: #e66767; --m4: #009690; --m5: #007dac;
 }
 * { box-sizing: border-box; }
 body {
@@ -38,7 +38,8 @@ body {
   font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 32px; }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; }
+header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
 h1 { font-size: 18px; font-weight: 600; margin: 0; }
 .who { color: var(--ink2); }
 .status { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 13px; }
@@ -58,7 +59,8 @@ h1 { font-size: 18px; font-weight: 600; margin: 0; }
 .ghost { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 #project {
   font: inherit; font-size: 13px; color: var(--ink2); background: var(--surface);
-  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; max-width: 220px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  max-width: 220px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
 }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; min-width: 0; }
 .top { margin-bottom: 16px; }
@@ -71,6 +73,8 @@ h1 { font-size: 18px; font-weight: 600; margin: 0; }
 .card-head .now { margin-left: auto; font-size: 22px; font-weight: 600; }
 .card-head .now small { font-size: 12px; font-weight: 400; color: var(--ink2); margin-left: 4px; }
 .hint { color: var(--muted); font-size: 12px; }
+.cost-note { margin-top: 8px; }
+.cost-note:empty { display: none; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
 .legend button {
   font: inherit; font-size: 12px; color: var(--ink2); background: transparent;
@@ -105,6 +109,10 @@ th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--gr
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
 .err { color: var(--s2); font-size: 13px; }
+.hints { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.hint-banner { font-size: 13px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
+.hint-banner.warn { background: color-mix(in srgb, var(--s4) 14%, transparent); border-color: color-mix(in srgb, var(--s4) 45%, transparent); }
+.hint-banner.crit { background: color-mix(in srgb, var(--m3) 14%, transparent); border-color: color-mix(in srgb, var(--m3) 45%, transparent); }
 @media (max-width: 760px) {
   .tile .value { font-size: 24px; }
   canvas.chart { height: 170px; }
@@ -114,22 +122,29 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
 <body>
 <div class="wrap">
   <header>
-    <h1><a href="https://github.com/mahmoodn/token-meter" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">Token Meter</a></h1>
-    <span class="who" id="who"></span>
-    <span class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
-    <span class="spacer"></span>
-    <div class="seg" id="sources" role="group" aria-label="Source"></div>
-    <select id="project" title="Project" aria-label="Project"><option value="">All projects</option></select>
-    <div class="seg" id="ranges" role="group" aria-label="Time range"></div>
-    <button class="ghost" id="theme" title="Theme">Theme: system</button>
+    <div class="header-row">
+      <h1><a href="https://github.com/mahmoodn/token-meter" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">Token Meter</a></h1>
+      <span class="who" id="who"></span>
+      <span class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+    </div>
+    <div class="header-row">
+      <div class="seg" id="sources" role="group" aria-label="Source"></div>
+      <select id="project" title="Project" aria-label="Project"><option value="">All projects</option></select>
+      <div class="seg" id="ranges" role="group" aria-label="Time range"></div>
+      <span class="spacer"></span>
+      <button class="ghost" id="theme" title="Theme">Theme: system</button>
+    </div>
   </header>
+
+  <div class="hints" id="hints"></div>
 
   <div class="top">
     <div class="tiles">
       <div class="card tile"><div class="label">Output today</div><div class="value" id="tToday">–</div><div class="sub" id="tTodaySub"></div></div>
       <div class="card tile"><div class="label">Input today</div><div class="value" id="tInToday">–</div><div class="sub" id="tInTodaySub"></div></div>
-      <div class="card tile"><div class="label">Output, last 5 hours</div><div class="value" id="t5h">–</div><div class="sub" id="t5hSub"></div></div>
-      <div class="card tile"><div class="label">Peak output speed (7 days)</div><div class="value" id="tPeak">–</div><div class="sub" id="tPeakSub"></div></div>
+      <div class="card tile"><div class="label" id="t5hLabel">Output</div><div class="value" id="t5h">–</div><div class="sub" id="t5hSub"></div></div>
+      <div class="card tile"><div class="label" id="tPeakLabel">Peak output speed</div><div class="value" id="tPeak">–</div><div class="sub" id="tPeakSub"></div></div>
+      <div class="card tile"><div class="label" id="tCostLabel">Estimated cost</div><div class="value" id="tCost">–</div><div class="sub" id="tCostSub"></div></div>
     </div>
   </div>
 
@@ -154,6 +169,11 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
       <div class="legend" id="ctxLegend"></div>
       <canvas class="chart" id="chartCtx"></canvas>
     </div>
+    <div class="card" id="cardCost">
+      <div class="card-head"><h2>Estimated cost</h2><span class="hint">running total; equivalent pay-as-you-go API cost, not a real charge — dashed line is your subscription price</span><span class="now" id="nowCost">$0</span></div>
+      <canvas class="chart" id="chartCost"></canvas>
+      <div class="hint cost-note" id="costNote"></div>
+    </div>
     <div class="card" id="cardCum">
       <div class="card-head"><h2>Cumulative tokens</h2><span class="hint" id="cumHint">running total; each panel has its own scale</span><span class="now" id="nowCum">0<small>tokens</small></span></div>
       <div class="multiples" id="cumPanels"></div>
@@ -176,8 +196,25 @@ const SERIES = [
   { k: 'cr',    name: 'Cache read',        c: '--s5' },
 ];
 const BY_KEY = Object.fromEntries(SERIES.map(s => [s.k, s]));
-const RANGES = [['1m','1 min'],['5m','5 min'],['15m','15 min'],['1h','1 h'],['6h','6 h'],['24h','24 h'],['7d','7 d']];
-const MODEL_COLORS = ['--m1', '--m2', '--m3'];
+const RANGES = [['1m','1 min'],['15m','15 min'],['1h','1 h'],['5h','5 h'],['24h','24 h'],['7d','7 d']];
+// Five distinct model colours, then neutral grey — never a repeat. Wrapping around (the old
+// `% 3`) gave two models the same colour, which is worse than no colour: it asserts they're
+// the same model. Grey past the palette says "one of the others" instead.
+const MODEL_COLORS = ['--m1', '--m2', '--m3', '--m4', '--m5'];
+// A model's colour var, from its place in the *global* first-used order the server sends
+// (`model_order`), not its index in the scoped `models` list: that list shrinks and shifts
+// with the project filter, which used to recolour a model just because you changed
+// project. An older backend without `model_order` falls back to the scoped list.
+function modelVar(id) {
+  const d = state.data || {};
+  const i = (d.model_order || d.models || []).indexOf(id);
+  return i >= 0 && i < MODEL_COLORS.length ? MODEL_COLORS[i] : '--muted';
+}
+// Transcript-derived text (model ids) goes into innerHTML in a few places; an id that
+// looks like a tag — Claude Code's "<synthetic>" — is otherwise parsed as one and vanishes.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 function modelLabel(id) {
   if (!id || id === 'unknown') return 'unknown';
   const m = id.match(/^claude-([a-z]+)-(\d[\d-]*)/i);
@@ -198,8 +235,12 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('tm.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('tm.' + k, JSON.stringify(v)); } catch {} },
 };
+// A range key saved by an older version of this page (e.g. "5m", before the ranges
+// changed) no longer exists server-side; requesting it would get the server's default
+// back, which every poll would then discard as stale — a silently frozen dashboard.
+const storedRange = store.get('range', '1h');
 const state = {
-  range: store.get('range', '5m'),
+  range: RANGES.some(r => r[0] === storedRange) ? storedRange : '1h',
   project: store.get('project', ''),   // '' = all projects
   source: store.get('source', 'local'),        // 'local' | 'remote'
   remoteBase: store.get('remoteBase', ''),      // e.g. 'http://localhost:8766'
@@ -217,9 +258,28 @@ function fmt(v) {
   if (a >= 10 || v === 0) return Math.round(v).toString();
   return v.toFixed(1);
 }
+function fmtUsd(v) {
+  const a = Math.abs(v);
+  if (a >= 1000) return '$' + fmt(v);
+  if (a >= 1) return '$' + v.toFixed(2);
+  return '$' + v.toFixed(3);
+}
+function fmtUsdAxis(v, step, top) {
+  if (top >= 1000) return '$' + fmtAxis(v, step, top);
+  return '$' + v.toFixed(top >= 10 ? 0 : top >= 1 ? 2 : 3);
+}
 const pad = n => String(n).padStart(2, '0');
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+// A project's label is its full cwd (e.g. "C:\Users\...\token-meter" or
+// "/home/.../repo"), which is exactly what gets clipped by the closed <select>'s
+// width — the trailing, most-identifying part. Put the short name first so it
+// survives truncation; the full path still shows in the open dropdown list and as
+// a hover tooltip.
+function projectShortName(label) {
+  const parts = String(label).replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || label;
 }
 function timeLabel(t, bucket, full) {
   const d = new Date(t * 1000);
@@ -337,13 +397,16 @@ async function tryLaunchRemote() {
 }
 
 const rangesEl = document.getElementById('ranges');
+function syncRangeButtons() {
+  rangesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.key === state.range)));
+}
 for (const [key, label] of RANGES) {
   const b = document.createElement('button');
   b.textContent = label; b.dataset.key = key;
   b.setAttribute('aria-pressed', String(key === state.range));
   b.onclick = () => {
     state.range = key; store.set('range', key);
-    rangesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.key === key)));
+    syncRangeButtons();
     refresh(true);
   };
   rangesEl.appendChild(b);
@@ -358,7 +421,11 @@ function ensureProjectOptions(projects) {
   const current = knownProjects === null ? state.project : projectEl.value;
   knownProjects = sig;
   projectEl.innerHTML = '<option value="">All projects</option>' +
-    (projects || []).map(p => `<option value="${escapeHtml(p.key)}">${escapeHtml(p.label)}</option>`).join('');
+    (projects || []).map(p => {
+      const short = projectShortName(p.label);
+      const text = short === p.label ? short : `${short} — ${p.label}`;
+      return `<option value="${escapeHtml(p.key)}" title="${escapeHtml(p.label)}">${escapeHtml(text)}</option>`;
+    }).join('');
   // Keep the selection if it still exists; otherwise fall back to "All" (e.g. a project aged out).
   if ([...projectEl.options].some(o => o.value === current)) projectEl.value = current;
   else { projectEl.value = ''; state.project = ''; store.set('project', ''); }
@@ -401,10 +468,10 @@ function buildLegends() {
 // ---------- event markers (shared between chart types) ----------
 // Xt: time (epoch seconds) -> pixel x. Draws a dashed vertical line + label for each
 // session/model/compact/clear marker that falls inside [pl, pl+w].
-function drawEventMarkers(ctx, d, Xt, pt, h, pl, w) {
+function drawEventMarkers(ctx, events, Xt, pt, h, pl, w) {
   const muted = cssVar('--muted');
   ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
-  for (const e of d.events || []) {
+  for (const e of events || []) {
     const x = Xt(e.t);
     if (x < pl - 1 || x > pl + w + 1) continue;
     const xr = Math.round(x) + 0.5;
@@ -471,11 +538,16 @@ class TimeChart {
     }
     let max = 0, min = Infinity;
     for (const L of layers) for (const v of L.hi) { if (v > max) max = v; if (v < min) min = v; }
+    const refLine = typeof this.opts.refLine === 'function' ? this.opts.refLine(d) : this.opts.refLine;
+    if (refLine != null) { if (refLine > max) max = refLine; if (refLine < min) min = refLine; }
     let yMin = 0, yMax, step;
     if (this.opts.fit) {
       // Fit the axis to the values in view (running totals don't start at zero).
+      // fitFloor keeps the axis from collapsing to a single flat line when everything
+      // is near zero; default 1 assumes token counts, so a $-denominated chart (where
+      // "near zero" can mean literal cents) overrides it with a much smaller value.
       if (!isFinite(min)) min = 0;
-      step = niceStep(Math.max((max - min) / 4, max * 1e-4, 1));
+      step = niceStep(Math.max((max - min) / 4, max * 1e-4, this.opts.fitFloor ?? 1));
       yMin = Math.floor(min / step) * step;
       yMax = yMin + 4 * step;
       while (yMax < max) yMax += step;
@@ -498,7 +570,7 @@ class TimeChart {
       const v = yMin + step * j, y = Math.round(Y(v)) + 0.5;
       ctx.strokeStyle = j === 0 ? axis : grid; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(pl + w, y); ctx.stroke();
-      if (j % every === 0) ctx.fillText(fmtAxis(v, step * every, yMax), pl - 8, y);
+      if (j % every === 0) ctx.fillText((this.opts.fmtAxis || fmtAxis)(v, step * every, yMax), pl - 8, y);
     }
     // x labels
     ctx.textBaseline = 'top';
@@ -527,7 +599,23 @@ class TimeChart {
     }
 
     // markers for /model, /compact, /clear and session start
-    if (this.opts.markers) drawEventMarkers(ctx, d, t => X((t - d.start) / d.bucket), pt, h, pl, w);
+    if (this.opts.markers) drawEventMarkers(ctx, d.events, t => X((t - d.start) / d.bucket), pt, h, pl, w);
+
+    // reference line (e.g. subscription price on the cost chart) — same dashed,
+    // neutral-ink language as the event markers, just horizontal instead of vertical
+    if (refLine != null) {
+      const y = Math.round(Y(refLine)) + 0.5;
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = muted; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(pl + w, y); ctx.stroke();
+      ctx.restore();
+      const label = typeof this.opts.refLabel === 'function' ? this.opts.refLabel(d) : this.opts.refLabel;
+      if (label) {
+        ctx.fillStyle = muted; ctx.textAlign = 'right'; ctx.textBaseline = y - pt > 12 ? 'bottom' : 'top';
+        ctx.fillText(label, pl + w - 3, y + (y - pt > 12 ? -2 : 2));
+      }
+    }
 
     // marks — a stacked layer with zero contribution everywhere in view sits exactly
     // on top of the layer below it, so skip drawing it (its own-color stroke would
@@ -560,15 +648,17 @@ class TimeChart {
       ctx.strokeStyle = surface; ctx.lineWidth = 2; ctx.stroke();
     }
     if (state.hoverChart !== this) { this.tip.hidden = true; return; }
+    const fmtV = this.opts.fmtValue || fmt;
     let total = 0;
     const rows = keys.slice().reverse().map(k => {
       const v = vals[k][hi]; total += v;
-      return `<div class="r"><span class="sw" style="background:var(${this._color(k)})"></span>${this._name(k)}<b>${fmt(v)}</b></div>` +
-        (this.opts.fit ? `<div class="r">Added in this bucket<b>+${fmt(d.series[k][hi])}</b></div>` : '');
+      const added = (this.opts.addedInBucket ? this.opts.addedInBucket(d, k) : d.series[k])[hi];
+      return `<div class="r"><span class="sw" style="background:var(${this._color(k)})"></span>${esc(this._name(k))}<b>${fmtV(v)}</b></div>` +
+        (this.opts.fit ? `<div class="r">Added in this bucket<b>+${fmtV(added)}</b></div>` : '');
     }).join('');
     const t0 = d.start + hi * d.bucket;
     this.tip.innerHTML = `<div class="t">${timeLabel(t0, d.bucket, true)}${d.bucket > 1 ? ' – ' + timeLabel(t0 + d.bucket, d.bucket) : ''} · ${this.opts.unit}</div>${rows}` +
-      (keys.length > 1 ? `<div class="r tot">Total<b>${fmt(total)}</b></div>` : '');
+      (keys.length > 1 ? `<div class="r tot">Total<b>${fmtV(total)}</b></div>` : '');
     this.tip.hidden = false;
     const cvTop = this.cv.offsetTop, tipW = this.tip.offsetWidth;
     const left = this.cv.offsetLeft + x + 14 + tipW > this.card.clientWidth ? this.cv.offsetLeft + x - 14 - tipW : this.cv.offsetLeft + x + 14;
@@ -581,9 +671,21 @@ const rate = (d, k) => d.series[k].map(v => v / d.bucket);
 function cumulative(d, k) {
   let s = d.cum_base[k]; return d.series[k].map(v => (s += v));
 }
+function cumulativeCost(d) {
+  let s = d.cost_cum_base; return d.cost_series.map(v => (s += v));
+}
 const charts = [
   new TimeChart('chartOut', { keys: ['think', 'out'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
   new TimeChart('chartIn',  { keys: ['in', 'cw'], mode: 'stack', values: rate, unit: 'tokens/s', floor: 10, markers: true }),
+  new TimeChart('chartCost', {
+    keys: ['cost'], mode: 'line', unit: 'estimated $, running total', fit: true, fitFloor: 0.01, alwaysShow: true, markers: true,
+    values: cumulativeCost,
+    addedInBucket: d => d.cost_series,
+    colorFor: () => '--s2', nameFor: () => 'Estimated cost',
+    fmtValue: fmtUsd, fmtAxis: fmtUsdAxis,
+    refLine: d => d.subscription_price,
+    refLabel: d => `$${d.subscription_price} subscription`,
+  }),
 ];
 
 // ---------- context size per request (scatter, one point per API call) ----------
@@ -639,13 +741,13 @@ class RequestChart {
       ctx.fillText(timeLabel(t, d.bucket), X(t), pt + h + 6);
     }
 
-    drawEventMarkers(ctx, d, X, pt, h, pl, w);
+    drawEventMarkers(ctx, d.events, X, pt, h, pl, w);
 
     if (!reqs.length) return;
     for (const m of (d.models || [])) {
       const pts = reqs.filter(r => r.model === m);
       if (!pts.length) continue;
-      const color = cssVar(MODEL_COLORS[d.models.indexOf(m) % MODEL_COLORS.length]);
+      const color = cssVar(modelVar(m));
       ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
       ctx.beginPath();
       pts.forEach((r, i) => { const x = X(r.t), y = Y(r.ctx); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
@@ -661,7 +763,7 @@ class RequestChart {
     let best = null, bestD = Infinity;
     for (const r of this.pts) { const dx = X(r.t) - x; if (dx * dx < bestD) { bestD = dx * dx; best = r; } }
     if (!best || Math.sqrt(bestD) > 40) { this.tip.hidden = true; return; }
-    this.tip.innerHTML = `<div class="t">${timeLabel(best.t, 1, true)} · ${modelLabel(best.model)}</div>` +
+    this.tip.innerHTML = `<div class="t">${timeLabel(best.t, 1, true)} · ${esc(modelLabel(best.model))}</div>` +
       `<div class="r">Context size<b>${fmt(best.ctx)}</b></div>`;
     this.tip.hidden = false;
     const bx = X(best.t), tipW = this.tip.offsetWidth || 180;
@@ -677,16 +779,20 @@ charts.push(ctxChart);
 let modelCharts = [];
 let builtModels = [];
 function ensureModelPanels(models) {
-  if (JSON.stringify(models) === JSON.stringify(builtModels)) return;
-  builtModels = models.slice();
+  // Rebuild when the colour a model maps to changes too, not just the list itself — the
+  // legend bakes the swatch colours in, and a model can be recoloured (an older one aged
+  // out of the window) without the scoped list changing at all.
+  const built = models.map(m => [m, modelVar(m)]);
+  if (JSON.stringify(built) === JSON.stringify(builtModels)) return;
+  builtModels = built;
   for (let i = charts.length - 1; i >= 0; i--) if (modelCharts.includes(charts[i])) charts.splice(i, 1);
   modelCharts.forEach(c => c.tip.remove());
   modelCharts = [];
 
   document.getElementById('cardModel').hidden = models.length < 2;
-  const legendHtml = models.map((m, i) =>
+  const legendHtml = models.map(m =>
     `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px;color:var(--ink2);font-size:12px">` +
-    `<span class="sw" style="background:var(${MODEL_COLORS[i % MODEL_COLORS.length]})"></span>${modelLabel(m)}</span>`
+    `<span class="sw" style="background:var(${modelVar(m)})"></span>${esc(modelLabel(m))}</span>`
   ).join('');
   document.getElementById('modelLegend').innerHTML = legendHtml;
   document.getElementById('ctxLegend').innerHTML = models.length > 1 ? legendHtml : '';
@@ -706,7 +812,7 @@ function ensureModelPanels(models) {
         const arr = (dd.series_model[k] && dd.series_model[k][key]) || new Array(n).fill(0);
         return arr.map(v => v / dd.bucket);
       },
-      colorFor: k => MODEL_COLORS[models.indexOf(k) % MODEL_COLORS.length],
+      colorFor: k => modelVar(k),
       nameFor: k => modelLabel(k),
     });
     charts.push(chart);
@@ -743,10 +849,25 @@ function drawTiles(d) {
   document.getElementById('tTodaySub').textContent = `${fmt(d.today.think)} thinking · ${fmt(d.today.out)} text & tools`;
   document.getElementById('tInToday').textContent = fmt(sum(d.today, ['in', 'cw', 'cr']));
   document.getElementById('tInTodaySub').textContent = `${fmt(d.today.in)} fresh · ${fmt(d.today.cw)} cache write · ${fmt(d.today.cr)} cache read`;
-  document.getElementById('t5h').textContent = fmt(sum(d.last5h, ['think', 'out']));
-  document.getElementById('t5hSub').textContent = `${fmt(sum(d.last5h, ['in', 'cw', 'cr']))} input incl. cache`;
-  document.getElementById('tPeak').innerHTML = `${fmt(d.peak)}<small style="font-size:13px;font-weight:400;color:var(--ink2)"> tok/s</small>`;
-  document.getElementById('tPeakSub').textContent = d.peak_ts ? 'at ' + timeLabel(d.peak_ts, 60, true) : '';
+  // These three follow the selected range (unlike the two "today" tiles above), so
+  // they always describe the same window the charts below are showing.
+  const rangeName = (RANGES.find(r => r[0] === d.range) || [0, d.range])[1];
+  const inRange = ks => ks.reduce((a, k) => a + d.series[k].reduce((x, y) => x + y, 0), 0);
+  document.getElementById('t5hLabel').textContent = `Output, last ${rangeName}`;
+  document.getElementById('t5h').textContent = fmt(inRange(['think', 'out']));
+  document.getElementById('t5hSub').textContent = `${fmt(inRange(['in', 'cw', 'cr']))} input incl. cache`;
+  let peakRate = 0, peakAt = 0;
+  for (let i = 0; i < d.series.think.length; i++) {
+    const r = (d.series.think[i] + d.series.out[i]) / d.bucket;
+    if (r > peakRate) { peakRate = r; peakAt = d.start + i * d.bucket; }
+  }
+  document.getElementById('tPeakLabel').textContent = `Peak output speed, last ${rangeName}`;
+  document.getElementById('tPeak').innerHTML = `${fmt(peakRate)}<small style="font-size:13px;font-weight:400;color:var(--ink2)"> tok/s</small>`;
+  document.getElementById('tPeakSub').textContent = peakRate ? 'at ' + timeLabel(peakAt, d.bucket, true) + (d.bucket > 1 ? ` (avg over ${d.bucket}s)` : '') : '';
+  document.getElementById('tCostLabel').textContent = `Estimated cost, last ${rangeName}`;
+  document.getElementById('tCost').textContent = fmtUsd(d.cost_series.reduce((a, b) => a + b, 0));
+  document.getElementById('tCostSub').textContent = 'estimated equivalent API cost, not a real charge';
+  document.getElementById('costNote').textContent = costNote(d);
 
   const visOut = ['think', 'out'].filter(k => !state.hidden.has(k));
   const visIn = ['in', 'cw'];
@@ -756,9 +877,82 @@ function drawTiles(d) {
   const running = k => d.cum_base[k] + d.series[k].reduce((x, y) => x + y, 0);
   const tot = SERIES.reduce((a, s) => a + running(s.k), 0);
   document.getElementById('nowCum').innerHTML = `${fmt(tot)}<small>tokens</small>`;
+  document.getElementById('nowCost').textContent = fmtUsd(d.cost_cum_base + d.cost_series.reduce((a, b) => a + b, 0));
   document.getElementById('cumHint').textContent =
     `running total since ${new Date(d.cum_anchor * 1000).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} 00:00; each panel has its own scale`;
   for (const p of cumPanels) p.value.textContent = fmt(running(p.k));
+}
+
+// One line under the cost chart saying where each model's price came from, so a figure
+// the meter adjusted never passes for the built-in table's. The prices themselves are
+// worked out server-side (Meter._rates in token_meter.py); this only reports them.
+function costNote(d) {
+  const confirmed = [], corrected = [], derived = [], unchecked = [], unpriced = [];
+  for (const m of d.models) {
+    const p = d.pricing && d.pricing[m], name = modelLabel(m);
+    if (!p) {
+      // Nothing to price it with. Only worth saying if it actually used tokens in view —
+      // Claude Code's "<synthetic>" placeholder is in the model list but never has any.
+      const sm = d.series_model && d.series_model[m];
+      if (sm && (sm.out.some(v => v > 0) || sm.in.some(v => v > 0))) unpriced.push(name);
+    } else if (p.source === 'calibrated') {
+      // Calibration always lands on Claude Code's total, so "matches" would be true of
+      // every model; what's worth telling apart is whether the table needed correcting.
+      if (Math.abs(p.factor - 1) >= 0.03) corrected.push(`${name} ×${p.factor.toFixed(2)}`);
+      else confirmed.push(name);
+    } else if (p.source === 'derived') {
+      derived.push(name);
+    } else {
+      unchecked.push(name);
+    }
+  }
+  const notes = [];
+  if (confirmed.length) notes.push(`${confirmed.join(', ')}: prices confirmed against Claude Code's own cost records.`);
+  if (corrected.length) notes.push(`${corrected.join(', ')}: prices corrected using Claude Code's own cost records (vs. the built-in table).`);
+  if (derived.length) notes.push(`${derived.join(', ')}: not in the built-in price table; priced from Claude Code's cost records.`);
+  if (unchecked.length) notes.push(`${unchecked.join(', ')}: built-in table prices, no Claude Code cost records to check them against.`);
+  if (unpriced.length) notes.push(`${unpriced.join(', ')}: no known price, so counted as $0.`);
+  return notes.join(' ');
+}
+
+// ---------- hints & warnings ----------
+// Both are heuristics computed from data the collector already has, not a real
+// account-state check (see CLAUDE.md) — thresholds are deliberately conservative
+// so they only fire on something actually worth interrupting for.
+function renderHints(d) {
+  const el = document.getElementById('hints');
+  const banners = [];
+
+  const last = d.latest_request;
+  const limit = last && d.context_limits && d.context_limits[last.model];
+  // Only while that request is recent: a red banner left over from yesterday's session
+  // is noise, and the next request will refresh it the moment you start working again.
+  if (last && limit && d.now - last.t < 3600) {
+    const pct = last.ctx / limit;
+    // A prompt can't exceed the window it was sent to, so pct > 1 means CONTEXT_LIMITS
+    // is out of date, not that you're in trouble — stay quiet rather than cry wolf.
+    if (pct >= 0.7 && pct <= 1.05) {
+      banners.push({
+        level: pct >= 0.9 ? 'crit' : 'warn',
+        // "Context" alone got read as the session rate limit; say which one this is.
+        text: `Conversation context is at ${Math.round(pct * 100)}% of ${esc(modelLabel(last.model))}'s window ` +
+          `(${fmt(last.ctx)} / ${fmt(limit)} tokens) — not your session limit. Consider <code>/compact</code>` +
+          (pct >= 0.9 ? ' or <code>/clear</code> soon.' : ' soon.'),
+      });
+    }
+  }
+
+  const c15 = d.cache15m || { cw: 0, cr: 0 };
+  if (c15.cw > 20000 && c15.cw > c15.cr * 3) {
+    banners.push({
+      level: 'warn',
+      text: `Cache is being rewritten often (${fmt(c15.cw)} cache-write vs ${fmt(c15.cr)} cache-read ` +
+        `tokens in the last 15 min) — switching models or <code>/clear</code> forces a full cache ` +
+        `rewrite each time; staying on one model reuses it instead.`,
+    });
+  }
+
+  el.innerHTML = banners.map(b => `<div class="hint-banner ${b.level}">${b.text}</div>`).join('');
 }
 
 function renderTable() {
@@ -788,13 +982,16 @@ async function refresh(force) {
   const errEl = document.getElementById('err');
   try {
     if (state.source === 'remote' && !state.remoteBase) { state.source = 'local'; store.set('source', 'local'); renderSources(); }
-    const source = state.source, base = source === 'remote' ? state.remoteBase : '';
-    const url = base + '/api/data?range=' + encodeURIComponent(state.range) +
+    const source = state.source, reqRange = state.range, base = source === 'remote' ? state.remoteBase : '';
+    const url = base + '/api/data?range=' + encodeURIComponent(reqRange) +
       (state.project ? '&project=' + encodeURIComponent(state.project) : '');
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
-    if (d.range !== state.range || source !== state.source) return;   // stale: range or source changed mid-flight
+    if (source !== state.source || reqRange !== state.range) return;   // stale: changed mid-flight
+    // The server answers an unknown range key with its own default; adopt that rather
+    // than discarding every poll as a mismatch (same idea as the project fallback below).
+    if (d.range !== state.range) { state.range = d.range; store.set('range', d.range); syncRangeButtons(); }
     // The server falls back to "all projects" for an unknown/aged-out key; mirror that
     // back into our state instead of looping on a request it'll never satisfy.
     if ((d.project || '') !== state.project) { state.project = d.project || ''; store.set('project', state.project); }
@@ -802,7 +999,7 @@ async function refresh(force) {
     if (state.hover !== null && state.hover >= d.series.think.length) state.hover = null;
     ensureProjectOptions(d.projects);
     ensureModelPanels(d.models || []);
-    drawTiles(d); drawAll(); renderTable();
+    drawTiles(d); drawAll(); renderTable(); renderHints(d);
     errEl.hidden = true;
   } catch (e) {
     if (state.source === 'remote' && !remoteLaunchTried) {
