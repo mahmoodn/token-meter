@@ -81,6 +81,7 @@ RANGES = {
 # This is an estimate of equivalent pay-as-you-go API cost for comparison, not a real
 # bill — Claude Pro/Max subscriptions aren't metered per token.
 PRICING = {
+    "claude-opus-5-5": {"in": 4.00,  "out": 20.00, "cw": 8.00,  "cr": 0.20},
     "claude-opus-5":   {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
     "claude-opus-4-8": {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
     "claude-sonnet-5": {"in": 2.00,  "out": 10.00, "cw": 4.00,  "cr": 0.20},
@@ -95,10 +96,15 @@ PRICE_VEC = {
     m: (p["out"] / 1e6, p["out"] / 1e6, p["in"] / 1e6, p["cw"] / 1e6, p["cr"] / 1e6)
     for m, p in PRICING.items()
 }
-# Every model in PRICING prices output, cache write and cache read at the same multiples
-# of its base input rate. Used only to price a model the table has never heard of, from
-# nothing but its total cost in Claude Code's records (see Meter._rates) — that has to
-# assume some shape, and this is the one all five listed models share.
+# Every model in PRICING except Opus 5.5 prices output, cache write and cache read at
+# these same multiples of its base input rate. Used only to price a model the table has
+# never heard of, from nothing but its total cost in Claude Code's records (see
+# Meter._rates) — that has to assume some shape, and this is the one most listed models
+# share. Opus 5.5 breaks the cache-read part of it (0.05x base input, not 0.1x — the
+# only model on Anthropic's pricing page that isn't 0.1x, aside from Fable/Mythos 5.1's
+# 0.025x), which is exactly why it has its own PRICING entry rather than being priced
+# from this shape: a brand-new model can't be assumed to share it just because past ones
+# did.
 PRICE_SHAPE = {"out": 5.0, "cw": 2.0, "cr": 0.1}
 
 # Context window size (tokens), per model — the only thing the "context filling up"
@@ -114,6 +120,7 @@ PRICE_SHAPE = {"out": 5.0, "cw": 2.0, "cr": 0.1}
 # the better failure. A model with no entry here just doesn't get the hint, same
 # fallback style as PRICING. See also the >100% backstop in renderHints().
 CONTEXT_LIMITS = {
+    "claude-opus-5-5": 1_000_000,
     "claude-opus-5":   1_000_000,
     "claude-opus-4-8": 1_000_000,
     "claude-sonnet-5": 1_000_000,
