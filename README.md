@@ -47,7 +47,7 @@ cache (cache read, cheap) rather than being rewritten (cache write) or sent fres
   *finished* — Claude Code doesn't log usage while it streams — so during a long
   response the charts stay flat and then fill in when it lands.
 - **Local / Remote** (see [below](#local--remote-wsl-source-toggle)), **project
-  filter**, **time range**, and a theme button.
+  filter**, **time range**, an **Update** button, and a theme button.
 - **Project filter**: scopes every card to one Claude Code project (one folder you
   launched a session from). Defaults to "All projects". Useful for answering "which
   project is actually burning tokens?".
@@ -131,10 +131,12 @@ counted in the cumulative panels and in the context size below.
 Output and input rate again, but stacked by **model** instead of by token type. This
 card only appears once you've used more than one model in the last 8 days (for example
 after `/model`); a model you haven't touched in that long drops off the list. Each model
-keeps the same color everywhere — in both charts here, on the context-size chart, and
-whichever project you have selected. There are five model colors; a sixth model or more
-shares grey rather than repeating a color. Use it to see how much each model
-contributed — for example, how much work happened on Opus (planning) versus Sonnet
+keeps the same color everywhere — in both charts here, on the context-size chart,
+whichever project you have selected, and across relaunches (color is fixed by model
+family, not by the order you've used them in). There are five model colors; a sixth
+model or more shares grey rather than repeating a color, until a newer build adds it
+its own slot — see [Keeping it up to date](#keeping-it-up-to-date). Use it to see
+how much each model contributed — for example, how much work happened on Opus (planning) versus Sonnet
 (executing).
 
 <img width="900" alt="By model charts and the context-size-per-request chart, both colored per model" src="docs/img/p3.png" />
@@ -218,6 +220,23 @@ cache read in the hundreds of millions.
 Expand it (bottom of the screenshot above) for the exact numbers behind the current
 range: one row per non-empty time bucket, one column per token type. Handy for copying values out or when
 a chart is too small to read precisely.
+
+## Keeping it up to date
+
+The **Update** button in the header runs `git pull` on this checkout — it shows you
+the exact command first and only runs it once you confirm. This is the one thing in
+Token Meter that makes a network call; everything else, including the estimated-cost
+pricing, updates on its own from your local transcripts without ever needing an
+update (see [Estimated cost](#estimated-cost)). What an update *does* still get you:
+a newly released model gets its own legend color and context-window warning instead
+of falling back to grey with no hint, once someone's added it to the two small
+tables that need one.
+
+- Changes to `dashboard.html` apply on your very next refresh, no restart needed.
+- Changes to `token_meter.py` need you to restart it by hand — the button tells you
+  when that's the case.
+- Only works on a `git clone` of this repo with a clean fast-forward available; if
+  you've made local edits, resolve that the normal `git` way first.
 
 ## Local / Remote (WSL) source toggle
 

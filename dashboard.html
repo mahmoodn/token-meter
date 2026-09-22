@@ -132,6 +132,7 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
       <select id="project" title="Project" aria-label="Project"><option value="">All projects</option></select>
       <div class="seg" id="ranges" role="group" aria-label="Time range"></div>
       <span class="spacer"></span>
+      <button class="ghost" id="update" title="git pull this checkout from GitHub">Update</button>
       <button class="ghost" id="theme" title="Theme">Theme: system</button>
     </div>
   </header>
@@ -201,12 +202,20 @@ const RANGES = [['1m','1 min'],['15m','15 min'],['1h','1 h'],['5h','5 h'],['24h'
 // `% 3`) gave two models the same colour, which is worse than no colour: it asserts they're
 // the same model. Grey past the palette says "one of the others" instead.
 const MODEL_COLORS = ['--m1', '--m2', '--m3', '--m4', '--m5'];
-// A model's colour var, from its place in the *global* first-used order the server sends
-// (`model_order`), not its index in the scoped `models` list: that list shrinks and shifts
-// with the project filter, which used to recolour a model just because you changed
-// project. An older backend without `model_order` falls back to the scoped list.
+// A model's colour var is fixed by model family (`model_colors`, keyed by id, sent by the
+// server) rather than derived from any list position. An order-based slot (a model's index
+// in the global first-used order) used to change whenever a model aged out of the 8-day
+// retention window — a session holding a model's earliest surviving message rolling past 8
+// days old re-ranked everyone else, so the same model could be red one relaunch and green
+// the next. `model_colors` has no such dependency: a model keeps its slot for as long as
+// it's live, full stop. An older backend without `model_colors` falls back to the previous
+// order-based scheme so this file still works pointed at it (e.g. via the Remote toggle).
 function modelVar(id) {
   const d = state.data || {};
+  if (d.model_colors) {
+    const slot = d.model_colors[id];
+    return slot != null && slot < MODEL_COLORS.length ? MODEL_COLORS[slot] : '--muted';
+  }
   const i = (d.model_order || d.models || []).indexOf(id);
   return i >= 0 && i < MODEL_COLORS.length ? MODEL_COLORS[i] : '--muted';
 }
@@ -446,6 +455,45 @@ function applyTheme() {
 }
 themeBtn.onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; store.set('theme', theme); applyTheme(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+
+// Same two-call, show-then-confirm shape as postLaunchRemote above: a dry run reports the
+// exact `git pull` command, then a real confirm dialog before it actually runs. Only ever
+// asked of the LOCAL origin (relative fetch), so this button does nothing for a Remote
+// (WSL) meter you're only viewing through this page.
+const updateBtn = document.getElementById('update');
+updateBtn.onclick = async () => {
+  updateBtn.disabled = true;
+  const prevText = updateBtn.textContent;
+  try {
+    const preview = await (await fetch('/api/update', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: false }),
+    })).json();
+    if (!preview.ok) { alert('Cannot update: ' + preview.message); return; }
+    const cmd = (preview.command || []).join(' ');
+    if (!confirm(`Run this in the token-meter checkout?\n\n  ${cmd}`)) return;
+    updateBtn.textContent = 'Updating…';
+    const result = await (await fetch('/api/update', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    })).json();
+    if (!result.ok) { alert('Update failed:\n\n' + result.message); return; }
+    // dashboard.html is re-read from disk on every request, so a frontend change is
+    // already live on the next refresh; token_meter.py isn't reloaded into this running
+    // process, so a backend change needs you to restart it by hand.
+    alert(
+      result.message +
+      (result.changed ? '\n\nRestart token_meter.py to pick up any backend change. This page reloads on its own.' : '')
+    );
+  } catch (e) {
+    alert('Update failed: ' + e);
+  } finally {
+    updateBtn.disabled = false;
+    updateBtn.textContent = prevText;
+  }
+};
 
 function buildLegends() {
   document.querySelectorAll('.legend[data-keys]').forEach(el => {

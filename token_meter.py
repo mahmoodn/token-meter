@@ -120,6 +120,23 @@ CONTEXT_LIMITS = {
     "claude-fable-5":  1_000_000,
 }
 
+# A model's legend color, fixed by family rather than by first-used order (see
+# Meter.snapshot's `model_colors`) — one of the five `--m1`..`--m5` CSS slots the
+# dashboard defines. Deliberately hardcoded: an order-based slot changed color
+# whenever a model aged out of the retention window (a session holding a model's
+# earliest surviving message rolling past 8 days old re-ranked everyone), which
+# read as "Sonnet is sometimes red, sometimes green" across relaunches days apart.
+# A model not listed here (a brand-new family, or "<synthetic>", which never
+# reaches this table since it's never added to Meter.models) gets grey instead of
+# a slot some known model already owns.
+MODEL_COLOR_SLOT = {
+    "claude-haiku-4-5": 0,
+    "claude-sonnet-5":  1,
+    "claude-opus-5":    2,
+    "claude-opus-4-8":  3,
+    "claude-fable-5":   4,
+}
+
 
 def _model_key(model):
     """Table lookup key for a model id. Claude Code reports some models with a release
@@ -709,11 +726,16 @@ class Meter:
                 "context_limits": context_limits,
                 "cache15m": {"cw": round(max(cache15_cw, 0.0)), "cr": round(max(cache15_cr, 0.0))},
                 # `models` is what the selected project used; `model_order` is every live
-                # model, same first-used order. The dashboard takes a model's colour from its
-                # place in `model_order`, so it keeps the same colour whichever project is
-                # selected — an index into the scoped list moved it whenever the filter did.
+                # model, first-used order — display order only, not colour (see
+                # `model_colors`), so it keeps a project-filter-stable listing whichever
+                # project is selected — an index into the scoped list moved it whenever the
+                # filter did.
                 "models": [m for m in model_order if m in models_in_scope],
                 "model_order": model_order,
+                # A model's colour slot (index into the dashboard's --m1..--m5), fixed by
+                # model family via MODEL_COLOR_SLOT rather than derived from model_order —
+                # see that table's comment for why. null means "no fixed slot", grey.
+                "model_colors": {m: MODEL_COLOR_SLOT.get(_model_key(m)) for m in self.models},
                 "series_model": {
                     m: {"out": [round(v, 2) for v in s["out"]], "in": [round(v, 2) for v in s["in"]]}
                     for m, s in series_model.items()
@@ -776,6 +798,15 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return self._send(400, json.dumps({"ok": False, "message": "bad port"}).encode(), "application/json")
             result = launch_remote(port, confirm=bool(req.get("confirm")))
+            body = json.dumps(result).encode()
+            return self._send(200 if result["ok"] else 500, body, "application/json")
+        if url.path == "/api/update":
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                req = json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                req = {}
+            result = git_update(confirm=bool(req.get("confirm")))
             body = json.dumps(result).encode()
             return self._send(200 if result["ok"] else 500, body, "application/json")
         self._send(404, b"not found", "text/plain")
@@ -878,6 +909,43 @@ def launch_remote(port, confirm=False):
     # the WSL-side python3 running forever, invisible from the Windows side.
     _launched_remote_ports.add(port)
     return {"ok": True, "message": "launching", "running": False, "command": command}
+
+
+def git_update(confirm=False):
+    """`git pull --ff-only` this checkout, for the dashboard's Update button.
+
+    Same two-call shape as launch_remote: `confirm=False` (the default) is a dry run
+    reporting the exact command without running it, so the dashboard can show it in a
+    confirm dialog before calling back with `confirm=True`. `--ff-only` matches how
+    this repo is otherwise kept (see CLAUDE.md) rather than risking a merge commit in
+    someone's working checkout.
+
+    This exists mainly so a released model this build doesn't know the name of yet
+    (a new PRICING/CONTEXT_LIMITS/MODEL_COLOR_SLOT entry, or a fix to how an existing
+    one is priced) reaches you without editing files by hand — the pricing side of that
+    is normally unnecessary on its own (an unlisted model is still priced correctly
+    from Claude Code's own cost records, see Meter._rates), but a new entry can still
+    add a fixed colour slot or a context-window limit that calibration alone can't."""
+    if not shutil.which("git"):
+        return {"ok": False, "message": "git not found on PATH."}
+    if not (HERE / ".git").is_dir():
+        return {"ok": False, "message": f"{HERE} is not a git checkout."}
+    command = ["git", "-C", str(HERE), "pull", "--ff-only"]
+    if not confirm:
+        return {"ok": True, "message": "ready", "command": command}
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "message": f"Failed to run git pull: {exc}"}
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return {"ok": False, "message": output.strip() or "git pull failed", "command": command}
+    return {
+        "ok": True,
+        "message": output.strip(),
+        "command": command,
+        "changed": "Already up to date" not in output,
+    }
 
 
 _launched_remote_ports = set()   # ports this process itself launched a WSL meter on
