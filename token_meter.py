@@ -81,14 +81,16 @@ RANGES = {
 # This is an estimate of equivalent pay-as-you-go API cost for comparison, not a real
 # bill — Claude Pro/Max subscriptions aren't metered per token.
 PRICING = {
-    "claude-opus-5-5": {"in": 4.00,  "out": 20.00, "cw": 8.00,  "cr": 0.20},
-    "claude-opus-5":   {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
-    "claude-opus-4-8": {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
-    "claude-sonnet-5": {"in": 2.00,  "out": 10.00, "cw": 4.00,  "cr": 0.20},
-    "claude-fable-5":  {"in": 10.00, "out": 50.00, "cw": 20.00, "cr": 1.00},
+    "claude-opus-5-5":   {"in": 4.00,  "out": 20.00, "cw": 8.00,  "cr": 0.20},
+    "claude-opus-5":     {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
+    "claude-opus-4-8":   {"in": 5.00,  "out": 25.00, "cw": 10.00, "cr": 0.50},
+    # Same numbers as Sonnet 5 (checked, not assumed) — the sequel didn't reprice.
+    "claude-sonnet-5-5": {"in": 2.00,  "out": 10.00, "cw": 4.00,  "cr": 0.20},
+    "claude-sonnet-5":   {"in": 2.00,  "out": 10.00, "cw": 4.00,  "cr": 0.20},
+    "claude-fable-5":    {"in": 10.00, "out": 50.00, "cw": 20.00, "cr": 1.00},
     # Claude Code runs small background calls (conversation titles and the like) on
     # Haiku; cheap, but it was silently free before it had an entry.
-    "claude-haiku-4-5": {"in": 1.00, "out": 5.00,  "cw": 2.00,  "cr": 0.10},
+    "claude-haiku-4-5":  {"in": 1.00, "out": 5.00,  "cw": 2.00,  "cr": 0.10},
 }
 # Precomputed per-token $ rate in FIELDS order (think, out, in, cw, cr) — thinking
 # bills as output, so it reuses the "out" rate.
@@ -120,11 +122,12 @@ PRICE_SHAPE = {"out": 5.0, "cw": 2.0, "cr": 0.1}
 # the better failure. A model with no entry here just doesn't get the hint, same
 # fallback style as PRICING. See also the >100% backstop in renderHints().
 CONTEXT_LIMITS = {
-    "claude-opus-5-5": 1_000_000,
-    "claude-opus-5":   1_000_000,
-    "claude-opus-4-8": 1_000_000,
-    "claude-sonnet-5": 1_000_000,
-    "claude-fable-5":  1_000_000,
+    "claude-opus-5-5":   1_000_000,
+    "claude-opus-5":     1_000_000,
+    "claude-opus-4-8":   1_000_000,
+    "claude-sonnet-5-5": 1_000_000,
+    "claude-sonnet-5":   1_000_000,
+    "claude-fable-5":    1_000_000,
 }
 
 # A model's legend color, fixed by family rather than by first-used order (see
