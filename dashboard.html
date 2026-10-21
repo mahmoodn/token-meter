@@ -168,6 +168,7 @@ th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background:
     <div class="card" id="cardCtx">
       <div class="card-head"><h2>Context size per request</h2><span class="hint">fresh input + cache write + cache read, at each API request</span></div>
       <div class="legend" id="ctxLegend"></div>
+      <div class="legend" id="ctxSubLegend"></div>
       <canvas class="chart" id="chartCtx"></canvas>
     </div>
     <div class="card" id="cardCost">
@@ -765,7 +766,12 @@ class RequestChart {
     const n = d.series.think.length;
     const t0 = d.start, span = Math.max(n * d.bucket, 1);
     const X = t => pl + Math.max(0, Math.min(1, (t - t0) / span)) * w;
-    const reqs = d.requests || [];
+    // A subagent's context is a separate, disposable conversation (see `is_sub` in
+    // token_meter.py) — shown as hollow points with no connecting line, since a line
+    // through several unrelated subagent conversations in time order would read as one
+    // conversation sawing wildly, and hideable independently of the per-model toggle below.
+    const showSub = !state.hidden.has('subagents');
+    const reqs = showSub ? (d.requests || []) : (d.requests || []).filter(r => !r.sub);
     let max = 0; for (const r of reqs) if (r.ctx > max) max = r.ctx;
     const yMax = niceCeil(max || 1000), step = yMax / 4;
     const Y = v => pt + h - (v / yMax) * h;
@@ -793,15 +799,24 @@ class RequestChart {
 
     if (!reqs.length) return;
     for (const m of (d.models || [])) {
-      const pts = reqs.filter(r => r.model === m);
-      if (!pts.length) continue;
+      const all = reqs.filter(r => r.model === m);
+      if (!all.length) continue;
       const color = cssVar(modelVar(m));
-      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      pts.forEach((r, i) => { const x = X(r.t), y = Y(r.ctx); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-      ctx.stroke();
-      ctx.fillStyle = color;
-      for (const r of pts) { ctx.beginPath(); ctx.arc(X(r.t), Y(r.ctx), 2.5, 0, Math.PI * 2); ctx.fill(); }
+      const main = all.filter(r => !r.sub);
+      if (main.length) {
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        main.forEach((r, i) => { const x = X(r.t), y = Y(r.ctx); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+        ctx.stroke();
+        ctx.fillStyle = color;
+        for (const r of main) { ctx.beginPath(); ctx.arc(X(r.t), Y(r.ctx), 2.5, 0, Math.PI * 2); ctx.fill(); }
+      }
+      // Subagent points: hollow (stroke only), no connecting line between them.
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      for (const r of all) {
+        if (!r.sub) continue;
+        ctx.beginPath(); ctx.arc(X(r.t), Y(r.ctx), 3, 0, Math.PI * 2); ctx.stroke();
+      }
     }
   }
 
@@ -811,7 +826,7 @@ class RequestChart {
     let best = null, bestD = Infinity;
     for (const r of this.pts) { const dx = X(r.t) - x; if (dx * dx < bestD) { bestD = dx * dx; best = r; } }
     if (!best || Math.sqrt(bestD) > 40) { this.tip.hidden = true; return; }
-    this.tip.innerHTML = `<div class="t">${timeLabel(best.t, 1, true)} · ${esc(modelLabel(best.model))}</div>` +
+    this.tip.innerHTML = `<div class="t">${timeLabel(best.t, 1, true)} · ${esc(modelLabel(best.model))}${best.sub ? ' · subagent' : ''}</div>` +
       `<div class="r">Context size<b>${fmt(best.ctx)}</b></div>`;
     this.tip.hidden = false;
     const bx = X(best.t), tipW = this.tip.offsetWidth || 180;
@@ -822,6 +837,25 @@ class RequestChart {
 }
 const ctxChart = new RequestChart('chartCtx');
 charts.push(ctxChart);
+
+// Independent of the per-model legend above (and of ensureModelPanels, which owns
+// #ctxLegend and rebuilds it whenever the model list changes) — a subagent's hollow
+// point already carries its model's color, this just hides/shows the whole category.
+(function buildSubToggle() {
+  const el = document.getElementById('ctxSubLegend');
+  const b = document.createElement('button');
+  const sync = () => {
+    b.setAttribute('aria-pressed', String(!state.hidden.has('subagents')));
+    b.innerHTML = '<span class="sw" style="background:var(--muted)"></span>Subagent requests (hollow points)';
+  };
+  sync();
+  b.onclick = () => {
+    state.hidden.has('subagents') ? state.hidden.delete('subagents') : state.hidden.add('subagents');
+    store.set('hidden', [...state.hidden]);
+    sync(); drawAll();
+  };
+  el.appendChild(b);
+})();
 
 // ---------- per-model mini charts (built/rebuilt when the model list changes) ----------
 let modelCharts = [];

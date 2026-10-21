@@ -157,6 +157,14 @@ with the token count before → after) and `/clear`, so you can tie a change in 
 what caused it. It's the lower chart in the screenshot above: each model's points climb
 steadily as the conversation grows, and the color changes at the switch.
 
+A subagent (the Task tool — background agents like `general-purpose`) starts its own
+conversation with no connection to the main thread's history, so its context size means
+something different and would otherwise make a steady conversation look like it's sawing
+wildly between unrelated sizes. Its points are drawn hollow, with no line connecting them
+to each other or to the main thread's points; a legend toggle under the chart hides them
+entirely. The context warning above is still driven only by the main thread's latest
+point, never a subagent's.
+
 ### Estimated cost
 
 A running total of what your usage would have cost at metered **pay-as-you-go API

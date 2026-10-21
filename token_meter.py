@@ -272,7 +272,7 @@ class Meter:
         self.projects = {}        # project key -> {"label": cwd or dir name, "first_ts": ts}
         self.project_models = {}  # project key -> set of model ids seen in that project
         self.events = []   # [ts, kind, extra, project] for session/model/compact/clear markers
-        self.msgs = {}     # message id -> [start, end, vector, model, project]
+        self.msgs = {}     # message id -> [start, end, vector, model, project, is_subagent]
         # transcript path -> {model: (token cost $, out, in, cache write, cache read)}, the
         # latest of Claude Code's own per-model accounting for that session (see _rates)
         self.cost_state = {}
@@ -373,6 +373,15 @@ class Meter:
             # prompt/tool result that triggered it to its last block.
             vec = usage_vector(msg["usage"])
             model = msg.get("model") or "unknown"
+            # Claude Code marks every entry belonging to a spawned subagent (Task tool)
+            # `isSidechain: true`, whether it's inline in the main transcript (older
+            # versions) or in its own file under <session>/subagents/ (current versions,
+            # which _discover's rglob already picks up with no special-casing needed). A
+            # subagent's context is a separate, disposable conversation that never shares
+            # the main thread's history — mixing its points into the main thread's own
+            # context-size-per-request chart made a healthy, steady conversation look like
+            # it was sawing wildly between unrelated sizes. See CLAUDE.md.
+            is_sub = bool(entry.get("isSidechain"))
             # Claude Code writes its own messages ("No response requested.", API errors,
             # "Login expired") as assistant entries with model "<synthetic>" and no
             # tokens at all — 5 of 5 in every transcript on this machine. It isn't a
@@ -393,7 +402,7 @@ class Meter:
                     start = state[2] if state[2] and state[2] <= ts else ts - 1
                     start = max(start, ts - MAX_SPREAD)
                     self._spread(start, ts, vec, +1, model, project)
-                    self.msgs[msg["id"]] = [start, ts, vec, model, project]
+                    self.msgs[msg["id"]] = [start, ts, vec, model, project, is_sub]
                 elif vec != rec[2] or ts > rec[1]:
                     self._spread(rec[0], rec[1], rec[2], -1, rec[3], rec[4])
                     rec[1] = min(max(ts, rec[1]), rec[0] + MAX_SPREAD)
@@ -663,19 +672,29 @@ class Meter:
                     sm["in"][idx] += vec[2] + vec[3] + vec[4]
                 cost_series[idx] += _bucket_cost(mb, rates)
             # One point per API request: total prompt size (fresh + cache write + cache read).
+            # `sub` marks a subagent's own request so the frontend can tell it apart from
+            # the main thread's — see the `is_sub` comment in `_line` for why that matters.
             requests = sorted(
                 (
-                    {"t": round(rec[1], 1), "ctx": round(rec[2][2] + rec[2][3] + rec[2][4]), "model": rec[3]}
+                    {
+                        "t": round(rec[1], 1), "ctx": round(rec[2][2] + rec[2][3] + rec[2][4]),
+                        "model": rec[3], "sub": rec[5],
+                    }
                     for rec in self.msgs.values()
                     if start <= rec[1] <= now + 1 and (proj is None or rec[4] == proj)
                 ),
                 key=lambda r: r["t"],
             )
-            # The newest request overall, regardless of the selected range — the context
-            # hint is about "how big is my context right now", and `requests` above is
-            # range-scoped, so on a 1m/15m range it's empty whenever you've paused.
+            # The newest MAIN-THREAD request overall, regardless of the selected range — the
+            # context hint is about "how big is my own conversation's context right now".
+            # `requests` above is range-scoped (empty on 1m/15m once you've paused), and a
+            # subagent is excluded here for the same reason it's marked in `requests`: its
+            # context has nothing to do with the main thread's, and during heavy parallel
+            # subagent use one of them is often the single most recent message overall.
             newest = None
             for rec in self.msgs.values():
+                if rec[5]:
+                    continue
                 if (proj is None or rec[4] == proj) and (newest is None or rec[1] > newest[1]):
                     newest = rec
             # How each visible model got its price (see _rates), so the cost card can say
